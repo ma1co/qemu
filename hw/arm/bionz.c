@@ -32,11 +32,26 @@
 #define CXD4132_NUM_IRQ 256
 #define CXD4132_IRQ_OFFSET 32
 
+#define CXD4132_CMDLINE_OFFSET 0x00013000
 #define CXD4132_TEXT_OFFSET 0x00018000
 #define CXD4132_INITRD_OFFSET 0x00408000
 
 #define TYPE_CXD4132 MACHINE_TYPE_NAME("cxd4132")
 #define CXD4132(obj) OBJECT_CHECK(Cxd4132State, (obj), TYPE_CXD4132)
+
+#define CXD4132_CMDLINE \
+    "lpj=622592 " \
+    "console=ttyAM0,115200n8 " \
+    "amba2.console=1 " \
+    "ip=off " \
+    "initrd=0x80408000,0x00700000 " \
+    "root=/dev/ram0 " \
+    "boottime=0x20000@0x833C0000 " \
+    "klog.size=0x20000 " \
+    "klog.addr=0x833E0080 " \
+    "mem=64M@0x80000000@0 " \
+    "memrsv=32K@0x80000000 " \
+    "memrsv=0x1270000@0x82D90000 "
 
 typedef struct Cxd4132State {
     MachineState parent_obj;
@@ -49,6 +64,22 @@ static void cxd4132_reset(void *opaque)
     Cxd4132State *s = CXD4132(opaque);
     cpu_reset(CPU(&s->cpu));
     cpu_set_pc(CPU(&s->cpu), s->loader_base);
+}
+
+static void cxd4132_init_cmdline(const char *default_cmdline, const char *cmdline, hwaddr base)
+{
+    const char *header = "kemco ";
+    const char *spacer = " ";
+    const char *footer = " *";
+    const size_t len = strlen(header) + strlen(default_cmdline) + strlen(spacer) + strlen(cmdline) + strlen(footer);
+    char *buf = g_malloc(len + 1);
+    strcpy(buf, header);
+    strcat(buf, default_cmdline);
+    strcat(buf, spacer);
+    strcat(buf, cmdline);
+    strcat(buf, footer);
+    rom_add_blob_fixed("cmdline", buf, len, base);
+    g_free(buf);
 }
 
 static void cxd4132_init(MachineState *machine)
@@ -98,6 +129,7 @@ static void cxd4132_init(MachineState *machine)
 
     load_image_targphys(machine->kernel_filename, CXD4132_DDR_BASE + CXD4132_TEXT_OFFSET, CXD4132_DDR_SIZE - CXD4132_TEXT_OFFSET);
     load_image_targphys(machine->initrd_filename, CXD4132_DDR_BASE + CXD4132_INITRD_OFFSET, CXD4132_DDR_SIZE - CXD4132_INITRD_OFFSET);
+    cxd4132_init_cmdline(CXD4132_CMDLINE, machine->kernel_cmdline, CXD4132_DDR_BASE + CXD4132_CMDLINE_OFFSET);
 
     s->loader_base = CXD4132_DDR_BASE + CXD4132_TEXT_OFFSET;
     qemu_register_reset(cxd4132_reset, s);
