@@ -2,19 +2,24 @@
 
 #include "qemu/osdep.h"
 #include "cpu.h"
-#include "hw/boards.h"
-#include "hw/loader.h"
 #include "hw/sysbus.h"
+#include "hw/block/flash.h"
+#include "hw/boards.h"
 #include "hw/char/pl011.h"
 #include "hw/cpu/arm11mpcore.h"
+#include "hw/loader.h"
 #include "qapi/error.h"
 #include "sysemu/sysemu.h"
+
+#define CXD4132_NAND_BASE 0x00000000
 
 #define CXD4132_DDR_BASE 0x80000000
 #define CXD4132_DDR_SIZE 0x20000000
 
 #define CXD4132_SRAM_BASE 0xa0000000
 #define CXD4132_SRAM_SIZE 0x00400000
+
+#define CXD4132_MENO_BASE 0xf2002000
 
 #define CXD4132_HWTIMER_BASE(i) (0xf2008000 + (i) * 0x20)
 #define CXD4132_NUM_HWTIMER 5
@@ -28,6 +33,8 @@
 
 #define CXD4132_IRQ_UART(i) (160 + (i))
 #define CXD4132_IRQ_HWTIMER(i) (163 + (i))
+#define CXD4132_IRQ_MENO 180
+#define CXD4132_IRQ_NAND 183
 
 #define CXD4132_NUM_IRQ 256
 #define CXD4132_IRQ_OFFSET 32
@@ -56,6 +63,7 @@
 typedef struct Cxd4132State {
     MachineState parent_obj;
     ARMCPU cpu;
+    BlockBackend *drive;
     hwaddr loader_base;
 } Cxd4132State;
 
@@ -85,10 +93,14 @@ static void cxd4132_init_cmdline(const char *default_cmdline, const char *cmdlin
 static void cxd4132_init(MachineState *machine)
 {
     Cxd4132State *s = CXD4132(machine);
+    DriveInfo *dinfo;
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[CXD4132_NUM_IRQ - CXD4132_IRQ_OFFSET];
     int i;
+
+    dinfo = drive_get(IF_MTD, 0, 0);
+    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
     object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
     qdev_init_nofail(DEVICE(&s->cpu));
@@ -110,6 +122,21 @@ static void cxd4132_init(MachineState *machine)
     for (i = 0; i < CXD4132_NUM_IRQ - CXD4132_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
     }
+
+    dev = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(dev, "manufacturer_id", NAND_MFR_SAMSUNG);
+    qdev_prop_set_uint16(dev, "device_id", 0x40);
+    qdev_prop_set_int32(dev, "shift", 1);
+    qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_NAND_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_NAND - CXD4132_IRQ_OFFSET]);
+
+    dev = qdev_create(NULL, "bionz_meno");
+    qdev_prop_set_ptr(dev, "drive_ptr", s->drive);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_MENO_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_MENO - CXD4132_IRQ_OFFSET]);
 
     for (i = 0; i < CXD4132_NUM_HWTIMER; i++) {
         dev = qdev_create(NULL, "bionz_hwtimer");
