@@ -20,6 +20,8 @@
 #define CXD4132_SRAM_BASE 0xa0000000
 #define CXD4132_SRAM_SIZE 0x00400000
 
+#define CXD4132_DMA_BASE 0xf2001000
+
 #define CXD4132_MENO_BASE 0xf2002000
 
 #define CXD4132_HWTIMER_BASE(i) (0xf2008000 + (i) * 0x20)
@@ -34,6 +36,7 @@
 
 #define CXD4132_IRQ_UART(i) (160 + (i))
 #define CXD4132_IRQ_HWTIMER(i) (163 + (i))
+#define CXD4132_IRQ_DMA(i) (176 + (i))
 #define CXD4132_IRQ_MENO 180
 #define CXD4132_IRQ_NAND 183
 
@@ -166,6 +169,13 @@ static void cxd4132_init(MachineState *machine)
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_NAND - CXD4132_IRQ_OFFSET]);
+
+    dev = qdev_create(NULL, "bionz_dma");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_DMA_BASE);
+    for (i = 0; i < 4; i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4132_IRQ_DMA(i) - CXD4132_IRQ_OFFSET]);
+    }
 
     dev = qdev_create(NULL, "bionz_meno");
     qdev_prop_set_ptr(dev, "drive_ptr", s->drive);
