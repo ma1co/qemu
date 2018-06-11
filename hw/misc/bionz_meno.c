@@ -4,6 +4,7 @@
 #include "hw/sysbus.h"
 #include "qapi/error.h"
 #include "qemu/log.h"
+#include "qemu/lz77.h"
 #include "sysemu/block-backend.h"
 
 #define AS_ADDR(addr) ((addr) - 0x10000000)
@@ -30,15 +31,23 @@ typedef struct MenoState {
     uint32_t poll_mode;
 } MenoState;
 
-typedef struct MenoArgs {
-    uint32_t action;
-    uint32_t pad[4];
+typedef struct MenoReadArgs {
     uint32_t block;
     uint32_t sector;
     uint32_t num_buffers;
     uint32_t buffer_ptr;
     uint32_t size_ptr;
-} MenoArgs;
+} MenoReadArgs;
+
+typedef struct MenoLzReadArgs {
+    uint32_t num;
+    uint32_t block_ptr;
+    uint32_t sector_ptr;
+    uint32_t num_sector_ptr;
+    uint32_t offset;
+    uint32_t block_size;
+    uint32_t buffer;
+} MenoLzReadArgs;
 
 static void meno_as_read(MenoState *s, uint32_t addr, void *buf, uint32_t len)
 {
@@ -59,20 +68,25 @@ static void meno_update_irq(MenoState *s)
     qemu_set_irq(s->intr, !s->poll_mode && s->csr);
 }
 
-static void meno_nand_read(MenoState *s, MenoArgs *args, uint32_t offset)
+static void meno_nand_read(MenoState *s, uint32_t args_ptr, uint32_t offset, uint32_t sector_size)
 {
+    MenoReadArgs args;
     uint32_t buffer_ptr;
     uint32_t size;
     void *buffer;
     int i;
 
-    for (i = 0; i < args->num_buffers; i++) {
-        meno_as_read(s, args->buffer_ptr + i * sizeof(buffer_ptr), &buffer_ptr, sizeof(buffer_ptr));
-        meno_as_read(s, args->size_ptr + i * sizeof(size), &size, sizeof(size));
+    meno_as_read(s, args_ptr, &args, sizeof(args));
+    offset += (args.block * NAND_SECTORS_PER_BLOCK + args.sector) * sector_size;
+
+    for (i = 0; i < args.num_buffers; i++) {
+        meno_as_read(s, args.buffer_ptr + i * sizeof(buffer_ptr), &buffer_ptr, sizeof(buffer_ptr));
+        meno_as_read(s, args.size_ptr + i * sizeof(size), &size, sizeof(size));
 
         buffer = g_malloc(size);
-        if (s->blk && blk_pread((BlockBackend *) s->blk, offset, buffer, size) < 0)
+        if (s->blk && blk_pread((BlockBackend *) s->blk, offset, buffer, size) < 0) {
             hw_error("%s: Cannot read block device\n", __func__);
+        }
         meno_as_write(s, buffer_ptr, buffer, size);
         g_free(buffer);
 
@@ -80,27 +94,78 @@ static void meno_nand_read(MenoState *s, MenoArgs *args, uint32_t offset)
     }
 }
 
+static void meno_nand_lz_read(MenoState *s, uint32_t args_ptr)
+{
+    MenoLzReadArgs args;
+    uint32_t block, sector, num_sector;
+    unsigned int src_size, dst_size, off;
+    unsigned char *src_buffer, *dst_buffer, *src, *dst;
+    int i, res;
+
+    meno_as_read(s, args_ptr, &args, sizeof(args));
+
+    src_size = 0;
+    for (i = 0; i < args.num; i++) {
+        meno_as_read(s, args.num_sector_ptr + i * sizeof(num_sector), &num_sector, sizeof(num_sector));
+        src_size += num_sector * NAND_SECTOR_SIZE;
+    }
+    dst_size = 1 << args.block_size;
+
+    src_buffer = g_malloc(src_size);
+    dst_buffer = g_malloc(dst_size);
+
+    src = src_buffer;
+    for (i = 0; i < args.num; i++) {
+        meno_as_read(s, args.block_ptr + i * sizeof(block), &block, sizeof(block));
+        meno_as_read(s, args.sector_ptr + i * sizeof(sector), &sector, sizeof(sector));
+        meno_as_read(s, args.num_sector_ptr + i * sizeof(num_sector), &num_sector, sizeof(num_sector));
+        off = (block * NAND_SECTORS_PER_BLOCK + sector) * NAND_SECTOR_SIZE;
+        if (s->blk && blk_pread((BlockBackend *) s->blk, off, src, num_sector * NAND_SECTOR_SIZE) < 0) {
+            hw_error("%s: Cannot read block device\n", __func__);
+        }
+        src += num_sector * NAND_SECTOR_SIZE;
+    }
+
+    src = src_buffer + args.offset;
+    dst = dst_buffer;
+    while (src < src_buffer + src_size && dst < dst_buffer + dst_size) {
+        res = lz77_inflate(src, src_buffer + src_size - src, dst, dst_buffer + dst_size - dst, &src);
+        if (res < 0) {
+            hw_error("%s: lz77_inflate failed\n", __func__);
+        }
+        dst += res;
+    }
+
+    meno_as_write(s, args.buffer, dst_buffer, dst_size);
+
+    g_free(src_buffer);
+    g_free(dst_buffer);
+}
+
 static void meno_command(MenoState *s)
 {
-    uint32_t args_ptr;
-    MenoArgs args;
+    uint32_t args_ptr, action;
     void *fwram = memory_region_get_ram_ptr(&s->fwram);
 
     meno_as_read(s, *(uint32_t *)(fwram + 0x18d4), &args_ptr, sizeof(args_ptr));
-    meno_as_read(s, args_ptr, &args, sizeof(args));
+    meno_as_read(s, args_ptr, &action, sizeof(action));
+    args_ptr += 0x14;
 
-    switch (args.action) {
+    switch (action) {
         case 1:
-            meno_nand_read(s, &args, (args.block * NAND_SECTORS_PER_BLOCK + args.sector) * NAND_SECTOR_SIZE);
+            meno_nand_read(s, args_ptr, 0, NAND_SECTOR_SIZE);
             break;
 
         case 2:
-            meno_nand_read(s, &args, NAND_NUM_BLOCKS * NAND_SECTORS_PER_BLOCK * NAND_SECTOR_SIZE
-                                     + (args.block * NAND_SECTORS_PER_BLOCK + args.sector) * NAND_SPARE_SIZE);
+            meno_nand_read(s, args_ptr, NAND_NUM_BLOCKS * NAND_SECTORS_PER_BLOCK * NAND_SECTOR_SIZE, NAND_SPARE_SIZE);
+            break;
+
+        case 12:
+            meno_nand_lz_read(s, args_ptr);
             break;
 
         default:
-            qemu_log_mask(LOG_UNIMP, "%s: unimplemented command %d\n", __func__, args.action);
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented command %d\n", __func__, action);
     }
 
     s->csr = 1;
@@ -149,7 +214,7 @@ static void meno_write(void *opaque, hwaddr offset, uint64_t value, unsigned siz
             break;
 
         default:
-            qemu_log_mask(LOG_UNIMP, "%s: unimplemented  write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
     }
 }
 
