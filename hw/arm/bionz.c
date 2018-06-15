@@ -20,6 +20,8 @@
 #define CXD4132_SRAM_BASE 0xa0000000
 #define CXD4132_SRAM_SIZE 0x00400000
 
+#define CXD4132_USB_BASE 0xf0040000
+
 #define CXD4132_DMA_BASE 0xf2001000
 
 #define CXD4132_MENO_BASE 0xf2002000
@@ -39,6 +41,7 @@
 #define CXD4132_IRQ_DMA(i) (176 + (i))
 #define CXD4132_IRQ_MENO 180
 #define CXD4132_IRQ_NAND 183
+#define CXD4132_IRQ_USB 222
 
 #define CXD4132_NUM_IRQ 256
 #define CXD4132_IRQ_OFFSET 32
@@ -169,6 +172,11 @@ static void cxd4132_init(MachineState *machine)
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_NAND - CXD4132_IRQ_OFFSET]);
+
+    dev = qdev_create(NULL, "synopsys_usb");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_USB_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_USB - CXD4132_IRQ_OFFSET]);
 
     dev = qdev_create(NULL, "bionz_dma");
     qdev_init_nofail(dev);
