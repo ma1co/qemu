@@ -7,7 +7,7 @@
 #include "qemu/lz77.h"
 #include "sysemu/block-backend.h"
 
-#define AS_ADDR(addr) ((addr) - 0x10000000)
+#define PHYS_ADDR(addr) ((addr) - 0x10000000)
 
 #define NAND_SECTOR_SIZE 0x200
 #define NAND_SPARE_SIZE 0x10
@@ -22,7 +22,6 @@ typedef struct MenoState {
     MemoryRegion container;
     MemoryRegion mmio;
     MemoryRegion fwram;
-    AddressSpace as;
     qemu_irq intr;
 
     void *blk;
@@ -49,20 +48,6 @@ typedef struct MenoLzReadArgs {
     uint32_t buffer;
 } MenoLzReadArgs;
 
-static void meno_as_read(MenoState *s, uint32_t addr, void *buf, uint32_t len)
-{
-    if (address_space_read(&s->as, AS_ADDR(addr), MEMTXATTRS_UNSPECIFIED, buf, len) != MEMTX_OK) {
-        hw_error("%s: cannot read from 0x%" PRIx32 "\n", __func__, addr);
-    }
-}
-
-static void meno_as_write(MenoState *s, uint32_t addr, void *buf, uint32_t len)
-{
-    if (address_space_write(&s->as, AS_ADDR(addr), MEMTXATTRS_UNSPECIFIED, buf, len) != MEMTX_OK) {
-        hw_error("%s: cannot write to 0x%" PRIx32 "\n", __func__, addr);
-    }
-}
-
 static void meno_update_irq(MenoState *s)
 {
     qemu_set_irq(s->intr, !s->poll_mode && s->csr);
@@ -76,18 +61,18 @@ static void meno_nand_read(MenoState *s, uint32_t args_ptr, uint32_t offset, uin
     void *buffer;
     int i;
 
-    meno_as_read(s, args_ptr, &args, sizeof(args));
+    cpu_physical_memory_read(PHYS_ADDR(args_ptr), &args, sizeof(args));
     offset += (args.block * NAND_SECTORS_PER_BLOCK + args.sector) * sector_size;
 
     for (i = 0; i < args.num_buffers; i++) {
-        meno_as_read(s, args.buffer_ptr + i * sizeof(buffer_ptr), &buffer_ptr, sizeof(buffer_ptr));
-        meno_as_read(s, args.size_ptr + i * sizeof(size), &size, sizeof(size));
+        cpu_physical_memory_read(PHYS_ADDR(args.buffer_ptr + i * sizeof(buffer_ptr)), &buffer_ptr, sizeof(buffer_ptr));
+        cpu_physical_memory_read(PHYS_ADDR(args.size_ptr + i * sizeof(size)), &size, sizeof(size));
 
         buffer = g_malloc(size);
         if (s->blk && blk_pread((BlockBackend *) s->blk, offset, buffer, size) < 0) {
             hw_error("%s: Cannot read block device\n", __func__);
         }
-        meno_as_write(s, buffer_ptr, buffer, size);
+        cpu_physical_memory_write(PHYS_ADDR(buffer_ptr), buffer, size);
         g_free(buffer);
 
         offset += size;
@@ -102,11 +87,11 @@ static void meno_nand_lz_read(MenoState *s, uint32_t args_ptr)
     unsigned char *src_buffer, *dst_buffer, *src, *dst;
     int i, res;
 
-    meno_as_read(s, args_ptr, &args, sizeof(args));
+    cpu_physical_memory_read(PHYS_ADDR(args_ptr), &args, sizeof(args));
 
     src_size = 0;
     for (i = 0; i < args.num; i++) {
-        meno_as_read(s, args.num_sector_ptr + i * sizeof(num_sector), &num_sector, sizeof(num_sector));
+        cpu_physical_memory_read(PHYS_ADDR(args.num_sector_ptr + i * sizeof(num_sector)), &num_sector, sizeof(num_sector));
         src_size += num_sector * NAND_SECTOR_SIZE;
     }
     dst_size = 1 << args.block_size;
@@ -116,9 +101,9 @@ static void meno_nand_lz_read(MenoState *s, uint32_t args_ptr)
 
     src = src_buffer;
     for (i = 0; i < args.num; i++) {
-        meno_as_read(s, args.block_ptr + i * sizeof(block), &block, sizeof(block));
-        meno_as_read(s, args.sector_ptr + i * sizeof(sector), &sector, sizeof(sector));
-        meno_as_read(s, args.num_sector_ptr + i * sizeof(num_sector), &num_sector, sizeof(num_sector));
+        cpu_physical_memory_read(PHYS_ADDR(args.block_ptr + i * sizeof(block)), &block, sizeof(block));
+        cpu_physical_memory_read(PHYS_ADDR(args.sector_ptr + i * sizeof(sector)), &sector, sizeof(sector));
+        cpu_physical_memory_read(PHYS_ADDR(args.num_sector_ptr + i * sizeof(num_sector)), &num_sector, sizeof(num_sector));
         off = (block * NAND_SECTORS_PER_BLOCK + sector) * NAND_SECTOR_SIZE;
         if (s->blk && blk_pread((BlockBackend *) s->blk, off, src, num_sector * NAND_SECTOR_SIZE) < 0) {
             hw_error("%s: Cannot read block device\n", __func__);
@@ -136,7 +121,7 @@ static void meno_nand_lz_read(MenoState *s, uint32_t args_ptr)
         dst += res;
     }
 
-    meno_as_write(s, args.buffer, dst_buffer, dst_size);
+    cpu_physical_memory_write(PHYS_ADDR(args.buffer), dst_buffer, dst_size);
 
     g_free(src_buffer);
     g_free(dst_buffer);
@@ -147,8 +132,8 @@ static void meno_command(MenoState *s)
     uint32_t args_ptr, action;
     void *fwram = memory_region_get_ram_ptr(&s->fwram);
 
-    meno_as_read(s, *(uint32_t *)(fwram + 0x18d4), &args_ptr, sizeof(args_ptr));
-    meno_as_read(s, args_ptr, &action, sizeof(action));
+    cpu_physical_memory_read(PHYS_ADDR(*(uint32_t *)(fwram + 0x18d4)), &args_ptr, sizeof(args_ptr));
+    cpu_physical_memory_read(PHYS_ADDR(args_ptr), &action, sizeof(action));
     args_ptr += 0x14;
 
     switch (action) {
@@ -236,8 +221,6 @@ static void meno_reset(DeviceState *dev)
 static int meno_init(SysBusDevice *sbd)
 {
     MenoState *s = BIONZ_MENO(sbd);
-
-    address_space_init(&s->as, sysbus_address_space(sbd), "as");
 
     memory_region_init(&s->container, OBJECT(sbd), TYPE_BIONZ_MENO, 0x3000);
     sysbus_init_mmio(sbd, &s->container);

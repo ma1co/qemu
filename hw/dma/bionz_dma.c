@@ -12,7 +12,6 @@
 typedef struct DmaState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
-    AddressSpace as;
     qemu_irq intr[NUM_CHANNEL];
 
     uint32_t int_reg;
@@ -41,9 +40,7 @@ static void dma_run(DmaState *s, unsigned ch)
     int size, sshift, dshift, sinc, dinc, intr;
 
     while (lli_ptr) {
-        if (address_space_read(&s->as, lli_ptr, MEMTXATTRS_UNSPECIFIED, (void *) &lli, sizeof(lli)) != MEMTX_OK) {
-            hw_error("%s: cannot read from 0x%" PRIx32 "\n", __func__, lli_ptr);
-        }
+        cpu_physical_memory_read(lli_ptr, &lli, sizeof(lli));
 
         size = lli.ctrl & 0x7ffff;
         if (size == 0) {
@@ -60,12 +57,8 @@ static void dma_run(DmaState *s, unsigned ch)
         }
 
         void *buffer = g_malloc(size << sshift);
-        if (address_space_read(&s->as, lli.src, MEMTXATTRS_UNSPECIFIED, buffer, size << sshift) != MEMTX_OK) {
-            hw_error("%s: cannot read from 0x%" PRIx32 "\n", __func__, lli.src);
-        }
-        if (address_space_write(&s->as, lli.dst, MEMTXATTRS_UNSPECIFIED, buffer, size << dshift) != MEMTX_OK) {
-            hw_error("%s: cannot write to 0x%" PRIx32 "\n", __func__, lli.dst);
-        }
+        cpu_physical_memory_read(lli.src, buffer, size << sshift);
+        cpu_physical_memory_write(lli.dst, buffer, size << dshift);
         g_free(buffer);
 
         if (intr) {
@@ -175,8 +168,6 @@ static int dma_init(SysBusDevice *sbd)
 {
     int i;
     DmaState *s = BIONZ_DMA(sbd);
-
-    address_space_init(&s->as, sysbus_address_space(sbd), "as");
 
     memory_region_init_io(&s->mmio, OBJECT(sbd), &dma_ops, s, TYPE_BIONZ_DMA, 0x1000);
     sysbus_init_mmio(sbd, &s->mmio);
