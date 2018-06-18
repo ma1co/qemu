@@ -88,6 +88,9 @@ static void tcp_usb_callback(TcpUsbState *s, int can_read, int can_write)
                 if (ret == 0) {
                     tcp_usb_client_closed(s);
                     return;
+                } else if (ret < 0 && errno == ECONNRESET) {
+                    tcp_usb_client_cleanup(s);
+                    return;
                 } else if (ret < 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
                     return;
                 } else if (ret < 0) {
@@ -111,6 +114,9 @@ static void tcp_usb_callback(TcpUsbState *s, int can_read, int can_write)
                         s->header.length - (s->count - sizeof(s->header)), 0);
                 if (ret == 0) {
                     tcp_usb_client_closed(s);
+                    return;
+                } else if (ret < 0 && errno == ECONNRESET) {
+                    tcp_usb_client_cleanup(s);
                     return;
                 } else if (ret < 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
                     return;
@@ -145,6 +151,9 @@ static void tcp_usb_callback(TcpUsbState *s, int can_read, int can_write)
                 if (ret == 0) {
                     tcp_usb_client_closed(s);
                     return;
+                } else if (ret < 0 && errno == ECONNRESET) {
+                    tcp_usb_client_cleanup(s);
+                    return;
                 } else if (ret < 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
                     return;
                 } else if (ret < 0) {
@@ -164,6 +173,9 @@ static void tcp_usb_callback(TcpUsbState *s, int can_read, int can_write)
                         s->header.length - (s->count - sizeof(s->header)), 0);
                 if (ret == 0) {
                     tcp_usb_client_closed(s);
+                    return;
+                } else if (ret < 0 && errno == ECONNRESET) {
+                    tcp_usb_client_cleanup(s);
                     return;
                 } else if (ret < 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
                     return;

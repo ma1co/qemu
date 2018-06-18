@@ -33,7 +33,7 @@ typedef enum TcpUsbStateEnum {
 typedef struct TcpUsbHeader {
     uint8_t flags;
     uint8_t ep;
-    int16_t length;
+    int32_t length;
 } __attribute__((packed)) TcpUsbHeader;
 
 typedef int (*TcpUsbCallback)(void *arg, const TcpUsbHeader *header, char *buffer);

@@ -89,8 +89,6 @@
 
 #define DEPTSIZ_SUPCNT_MASK   0x3
 #define DEPTSIZ_SUPCNT_SHIFT  29
-#define DEPTSIZ_PKTCNT_MASK   0x3FF
-#define DEPTSIZ_PKTCNT_SHIFT  19
 #define DEPTSIZ_XFERSIZ_MASK  0x7FFFF
 #define DEPTSIZ_XFERSIZ_SHIFT 0
 
@@ -178,7 +176,7 @@ static int synopsys_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char
     SynopsysUsbState *s = SYNOPSYS_USB(arg);
     uint8_t ep;
     SynopsysUsbEpState *eps;
-    size_t sz, pk, sup, count;
+    size_t sz, sup, count;
 
     if (header->flags & tcp_usb_reset) {
         s->gintsts |= GINTMSK_RESET;
@@ -192,10 +190,6 @@ static int synopsys_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char
     }
     eps = (header->ep & USB_DIR_IN) ? &s->in_eps[ep] : &s->out_eps[ep];
 
-    if (!(eps->depctl & DEPCTL_EPENA)) {
-        return USB_RET_NODEV;
-    }
-
     if (!(header->flags & tcp_usb_setup)) {
         if ((eps->depctl & DEPCTL_STALL)) {
             return USB_RET_STALL;
@@ -208,10 +202,13 @@ static int synopsys_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char
         }
     }
 
+    if (!(eps->depctl & DEPCTL_EPENA)) {
+        return USB_RET_NODEV;
+    }
+
     eps->depctl &= ~(DEPCTL_EPENA | DEPCTL_STALL);
 
     sz = (eps->deptsiz >> DEPTSIZ_XFERSIZ_SHIFT) & DEPTSIZ_XFERSIZ_MASK;
-    pk = (eps->deptsiz >> DEPTSIZ_PKTCNT_SHIFT) & DEPTSIZ_PKTCNT_MASK;
     sup = (eps->deptsiz >> DEPTSIZ_SUPCNT_SHIFT) & DEPTSIZ_SUPCNT_MASK;
 
     count = header->length;
@@ -236,16 +233,11 @@ static int synopsys_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char
         eps->depint |= DEPINT_SETUP;
     } else {
         sz -= count;
-        if (sz == 0) {
-            pk--;
-        }
 
         eps->deptsiz &= ~(DEPTSIZ_XFERSIZ_MASK << DEPTSIZ_XFERSIZ_SHIFT);
         eps->deptsiz |= (sz & DEPTSIZ_XFERSIZ_MASK) << DEPTSIZ_XFERSIZ_SHIFT;
-        eps->deptsiz &= ~(DEPTSIZ_PKTCNT_MASK << DEPTSIZ_PKTCNT_SHIFT);
-        eps->deptsiz |= (pk & DEPTSIZ_PKTCNT_MASK) << DEPTSIZ_PKTCNT_SHIFT;
 
-        if (pk == 0) {
+        if (sz == 0) {
             eps->depint |= DEPINT_XFERCOMPL;
         }
     }
