@@ -4,19 +4,10 @@
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 
-#define NUM_CHANNEL 4
+#define MAX_CHANNEL 8
 
 #define TYPE_BIONZ_DMA "bionz_dma"
 #define BIONZ_DMA(obj) OBJECT_CHECK(DmaState, (obj), TYPE_BIONZ_DMA)
-
-typedef struct DmaState {
-    SysBusDevice parent_obj;
-    MemoryRegion mmio;
-    qemu_irq intr[NUM_CHANNEL];
-
-    uint32_t int_reg;
-    uint32_t lli_reg[NUM_CHANNEL];
-} DmaState;
 
 typedef struct LinkedListItem {
     uint32_t src;
@@ -25,32 +16,68 @@ typedef struct LinkedListItem {
     uint32_t ctrl;
 } LinkedListItem;
 
+typedef struct DmaState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+    qemu_irq intr[MAX_CHANNEL];
+
+    uint32_t version;
+    uint32_t num_channel;
+
+    uint32_t int_reg;
+    LinkedListItem regs[MAX_CHANNEL];
+    uint32_t conf_reg[MAX_CHANNEL];
+    uint32_t lli_reg[MAX_CHANNEL];
+} DmaState;
+
 static void dma_update_irq(DmaState *s)
 {
     int i;
-    for (i = 0; i < NUM_CHANNEL; i++) {
+    for (i = 0; i < s->num_channel; i++) {
         qemu_set_irq(s->intr[i], s->int_reg & (1 << i));
     }
 }
 
 static void dma_run(DmaState *s, unsigned ch)
 {
-    uint32_t lli_ptr = s->lli_reg[ch] & ~3;
     LinkedListItem lli;
     int size, sshift, dshift, sinc, dinc, intr;
 
-    while (lli_ptr) {
-        cpu_physical_memory_read(lli_ptr, &lli, sizeof(lli));
+    if (s->conf_reg[ch] & 0x2000000) {
+        cpu_physical_memory_read(s->lli_reg[ch] & ~3, &lli, sizeof(lli));
+    } else {
+        lli = s->regs[ch];
+    }
 
-        size = lli.ctrl & 0x7ffff;
-        if (size == 0) {
-            size = 0x80000;
+    while (1) {
+        switch (s->version) {
+            case 1:
+                size = lli.ctrl & 0xfff;
+                if (size == 0) {
+                    size = 0x1000;
+                }
+                sshift = (lli.ctrl >> 18) & 7;
+                dshift = (lli.ctrl >> 21) & 7;
+                sinc = (lli.ctrl >> 26) & 1;
+                dinc = (lli.ctrl >> 27) & 1;
+                intr = (lli.ctrl >> 31) & 1;
+                break;
+
+            case 2:
+                size = lli.ctrl & 0x7ffff;
+                if (size == 0) {
+                    size = 0x80000;
+                }
+                sshift = (lli.ctrl >> 23) & 7;
+                dshift = (lli.ctrl >> 26) & 7;
+                sinc = (lli.ctrl >> 29) & 1;
+                dinc = (lli.ctrl >> 30) & 1;
+                intr = (lli.ctrl >> 31) & 1;
+                break;
+
+            default:
+                hw_error("%s: unknown version\n", __func__);
         }
-        sshift = (lli.ctrl >> 23) & 7;
-        dshift = (lli.ctrl >> 26) & 7;
-        sinc = (lli.ctrl >> 29) & 1;
-        dinc = (lli.ctrl >> 30) & 1;
-        intr = (lli.ctrl >> 31) & 1;
 
         if (sshift != dshift || sinc != 1 || dinc != 1) {
             hw_error("%s: unimplemented parameters\n", __func__);
@@ -66,7 +93,9 @@ static void dma_run(DmaState *s, unsigned ch)
             dma_update_irq(s);
         }
 
-        lli_ptr = lli.next_lli;
+        if (!lli.next_lli)
+            break;
+        cpu_physical_memory_read(lli.next_lli, &lli, sizeof(lli));
     }
 }
 
@@ -81,8 +110,25 @@ static void dma_ch_write(void *opaque, unsigned ch, hwaddr offset, uint64_t valu
     DmaState *s = BIONZ_DMA(opaque);
 
     switch (offset) {
+        case 0x00:
+            s->regs[ch].src = value;
+            break;
+
+        case 0x04:
+            s->regs[ch].dst = value;
+            break;
+
+        case 0x08:
+            s->regs[ch].next_lli = value;
+            break;
+
+        case 0x0c:
+            s->regs[ch].ctrl = value;
+            break;
+
         case 0x10:
             // channel configuration register
+            s->conf_reg[ch] = value & ~1;
             if (value & 1) {
                 dma_run(s, ch);
             }
@@ -102,11 +148,12 @@ static uint64_t dma_read(void *opaque, hwaddr offset, unsigned size)
 {
     DmaState *s = BIONZ_DMA(opaque);
 
-    if (offset >= 0x100 && offset < 0x100 + (NUM_CHANNEL << 5)) {
+    if (offset >= 0x100 && offset < 0x100 + (s->num_channel << 5)) {
         return dma_ch_read(s, (offset - 0x100) >> 5, offset & 0x1f, size);
     } else {
         switch (offset) {
             case 0x00:
+            case 0x04:
                 // interrupt status register
                 return s->int_reg;
 
@@ -125,7 +172,7 @@ static void dma_write(void *opaque, hwaddr offset, uint64_t value, unsigned size
 {
     DmaState *s = BIONZ_DMA(opaque);
 
-    if (offset >= 0x100 && offset < 0x100 + (NUM_CHANNEL << 5)) {
+    if (offset >= 0x100 && offset < 0x100 + (s->num_channel << 5)) {
         return dma_ch_write(s, (offset - 0x100) >> 5, offset & 0x1f, value, size);
     } else {
         switch (offset) {
@@ -159,7 +206,9 @@ static void dma_reset(DeviceState *dev)
     DmaState *s = BIONZ_DMA(dev);
 
     s->int_reg = 0;
-    for (i = 0; i < NUM_CHANNEL; i++) {
+    for (i = 0; i < s->num_channel; i++) {
+        memset(&s->regs[i], 0, sizeof(s->regs[i]));
+        s->conf_reg[i] = 0;
         s->lli_reg[i] = 0;
     }
 }
@@ -172,12 +221,18 @@ static int dma_init(SysBusDevice *sbd)
     memory_region_init_io(&s->mmio, OBJECT(sbd), &dma_ops, s, TYPE_BIONZ_DMA, 0x1000);
     sysbus_init_mmio(sbd, &s->mmio);
 
-    for (i = 0; i < NUM_CHANNEL; i++) {
+    for (i = 0; i < s->num_channel; i++) {
         sysbus_init_irq(sbd, &s->intr[i]);
     }
 
     return 0;
 }
+
+static Property dma_properties[] = {
+    DEFINE_PROP_UINT32("version", DmaState, version, 0),
+    DEFINE_PROP_UINT32("num-channel", DmaState, num_channel, 0),
+    DEFINE_PROP_END_OF_LIST(),
+};
 
 static void dma_class_init(ObjectClass *klass, void *data)
 {
@@ -185,6 +240,7 @@ static void dma_class_init(ObjectClass *klass, void *data)
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     k->init = dma_init;
+    dc->props = dma_properties;
     dc->reset = dma_reset;
 }
 

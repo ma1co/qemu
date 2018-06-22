@@ -13,20 +13,27 @@
 #include "sysemu/sysemu.h"
 
 //////////////////////////// CXD4115 ////////////////////////////
+#define CXD4115_NAND_BASE 0x00000000
 #define CXD4115_DDR_BASE 0x10000000
 #define CXD4115_DDR_SIZE 0x10000000
+#define CXD4115_DMA_BASE 0x78008000
+#define CXD4115_DMA_NUM_CHANNEL 8
+#define CXD4115_ONA_BASE 0x78098000
 #define CXD4115_HWTIMER_BASE(i) (0x7a000000 + (i) * 0x20)
 #define CXD4115_NUM_HWTIMER 3
 #define CXD4115_UART_BASE(i) (0x7a050000 + (i) * 0x1000)
 #define CXD4115_NUM_UART 3
+#define CXD4115_GPIO_BASE 0x7a400000
 #define CXD4115_SRAM_BASE 0xfff00000
 #define CXD4115_SRAM_SIZE 0x00008000
 #define CXD4115_MPCORE_BASE 0xfffd0000
 
 #define CXD4115_NUM_IRQ 256
 #define CXD4115_IRQ_OFFSET 32
+#define CXD4115_IRQ_NAND 54
 #define CXD4115_IRQ_UART(i) (152 + (i))
 #define CXD4115_IRQ_HWTIMER(i) (155 + (i))
+#define CXD4115_IRQ_DMA(i) (168 + (i))
 
 #define CXD4115_BOOT_DEVICE_OFFSET 0x0000236c
 #define CXD4115_TEXT_OFFSET 0x00208000
@@ -40,6 +47,7 @@
 #define CXD4132_SRAM_SIZE 0x00400000
 #define CXD4132_USB_BASE 0xf0040000
 #define CXD4132_DMA_BASE 0xf2001000
+#define CXD4132_DMA_NUM_CHANNEL 4
 #define CXD4132_MENO_BASE 0xf2002000
 #define CXD4132_HWTIMER_BASE(i) (0xf2008000 + (i) * 0x20)
 #define CXD4132_NUM_HWTIMER 5
@@ -143,13 +151,27 @@ static void cxd_init_cmdline(const char *default_cmdline, const char *cmdline, h
     g_free(buf);
 }
 
+static void cxd_add_const_reg(const char *name, hwaddr base, uint32_t value)
+{
+    MemoryRegion *mem = g_new(MemoryRegion, 1);
+    uint32_t *buffer = g_new(uint32_t, 1);
+    *buffer = value;
+    memory_region_init_ram_ptr(mem, NULL, name, sizeof(uint32_t), buffer);
+    memory_region_set_readonly(mem, true);
+    memory_region_add_subregion(get_system_memory(), base, mem);
+}
+
 static void cxd4115_init(MachineState *machine)
 {
     CxdState *s = CXD(machine);
+    DriveInfo *dinfo;
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[CXD4115_NUM_IRQ - CXD4115_IRQ_OFFSET];
     int i;
+
+    dinfo = drive_get(IF_MTD, 0, 0);
+    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
     object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
     qdev_init_nofail(DEVICE(&s->cpu));
@@ -172,6 +194,24 @@ static void cxd4115_init(MachineState *machine)
         irq[i] = qdev_get_gpio_in(dev, i);
     }
 
+    dev = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(dev, "manufacturer_id", NAND_MFR_SAMSUNG);
+    qdev_prop_set_uint16(dev, "device_id", 0x30);
+    qdev_prop_set_int32(dev, "shift", 1);
+    qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_NAND_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4115_IRQ_NAND - CXD4115_IRQ_OFFSET]);
+
+    dev = qdev_create(NULL, "bionz_dma");
+    qdev_prop_set_uint32(dev, "version", 1);
+    qdev_prop_set_uint32(dev, "num-channel", CXD4115_DMA_NUM_CHANNEL);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_DMA_BASE);
+    for (i = 0; i < CXD4115_DMA_NUM_CHANNEL; i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4115_IRQ_DMA(i) - CXD4115_IRQ_OFFSET]);
+    }
+
     for (i = 0; i < CXD4115_NUM_HWTIMER; i++) {
         dev = qdev_create(NULL, "bionz_hwtimer");
         qdev_init_nofail(dev);
@@ -190,7 +230,12 @@ static void cxd4115_init(MachineState *machine)
 
         uint32_t boot_device = 1;
         rom_add_blob_fixed("boot_device", &boot_device, sizeof(boot_device), CXD4115_DDR_BASE + CXD4115_BOOT_DEVICE_OFFSET);
+    } else {
+        s->loader_base = cxd_init_loader(s);
     }
+
+    cxd_add_const_reg("gpio0_data", CXD4115_GPIO_BASE + 4, 0x48000);
+    cxd_add_const_reg("ona_reset", CXD4115_ONA_BASE, 1);
 
     qemu_register_reset(cxd_reset, s);
 }
@@ -243,9 +288,11 @@ static void cxd4132_init(MachineState *machine)
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_USB - CXD4132_IRQ_OFFSET]);
 
     dev = qdev_create(NULL, "bionz_dma");
+    qdev_prop_set_uint32(dev, "version", 2);
+    qdev_prop_set_uint32(dev, "num-channel", CXD4132_DMA_NUM_CHANNEL);
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_DMA_BASE);
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < CXD4132_DMA_NUM_CHANNEL; i++) {
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4132_IRQ_DMA(i) - CXD4132_IRQ_OFFSET]);
     }
 
