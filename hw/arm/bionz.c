@@ -53,7 +53,7 @@
 #define CXD4132_NUM_HWTIMER 5
 #define CXD4132_UART_BASE(i) (0xf2038000 + (i) * 0x1000)
 #define CXD4132_NUM_UART 3
-#define CXD4132_MISCCTRL_BASE 0xf3060000
+#define CXD4132_MISCCTRL_BASE(i) (0xf3060000 + (i) * 0x10)
 #define CXD4132_MPCORE_BASE 0xf8000000
 
 #define CXD4132_NUM_IRQ 256
@@ -313,11 +313,6 @@ static void cxd4132_init(MachineState *machine)
         pl011_create(CXD4132_UART_BASE(i), irq[CXD4132_IRQ_UART(i) - CXD4132_IRQ_OFFSET], serial_hds[i]);
     }
 
-    dev = qdev_create(NULL, "bionz_miscctrl");
-    qdev_prop_set_uint32(dev, "typeid", 0x301);
-    qdev_init_nofail(dev);
-    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_MISCCTRL_BASE);
-
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD4132_DDR_BASE + CXD4132_TEXT_OFFSET, CXD4132_DDR_SIZE - CXD4132_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD4132_DDR_BASE + CXD4132_INITRD_OFFSET, CXD4132_DDR_SIZE - CXD4132_INITRD_OFFSET);
@@ -329,6 +324,9 @@ static void cxd4132_init(MachineState *machine)
     } else {
         s->loader_base = cxd_init_loader(s);
     }
+
+    cxd_add_const_reg("miscctrl_readdone", CXD4132_MISCCTRL_BASE(1), 1);
+    cxd_add_const_reg("miscctrl_typeid", CXD4132_MISCCTRL_BASE(2), 0x301);
 
     qemu_register_reset(cxd_reset, s);
 }
