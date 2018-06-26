@@ -27,6 +27,8 @@
 #define CXD4115_SRAM_BASE 0xfff00000
 #define CXD4115_SRAM_SIZE 0x00008000
 #define CXD4115_MPCORE_BASE 0xfffd0000
+#define CXD4115_BOOTROM_BASE 0xffff0000
+#define CXD4115_BOOTROM_SIZE 0x00002000
 
 #define CXD4115_NUM_IRQ 256
 #define CXD4115_IRQ_OFFSET 32
@@ -46,6 +48,7 @@
 #define CXD4132_SRAM_BASE 0xa0000000
 #define CXD4132_SRAM_SIZE 0x00400000
 #define CXD4132_USB_BASE 0xf0040000
+#define CXD4132_BOOTCON_BASE 0xf0100000
 #define CXD4132_DMA_BASE 0xf2001000
 #define CXD4132_DMA_NUM_CHANNEL 4
 #define CXD4132_MENO_BASE 0xf2002000
@@ -55,6 +58,8 @@
 #define CXD4132_NUM_UART 3
 #define CXD4132_MISCCTRL_BASE(i) (0xf3060000 + (i) * 0x10)
 #define CXD4132_MPCORE_BASE 0xf8000000
+#define CXD4132_BOOTROM_BASE 0xffff0000
+#define CXD4132_BOOTROM_SIZE 0x00006000
 
 #define CXD4132_NUM_IRQ 256
 #define CXD4132_IRQ_OFFSET 32
@@ -103,17 +108,13 @@ static void cxd_reset(void *opaque)
     cpu_set_pc(CPU(&s->cpu), s->loader_base);
 }
 
-static uint32_t cxd_init_loader(CxdState *s)
+static hwaddr cxd_init_loader2(BlockBackend *drive)
 {
     char boot_block[NAND_SECTOR_SIZE];
     uint32_t loader_offset, loader_size, loader_base;
     void *loader_buffer;
 
-    if (!s->drive) {
-        return 0;
-    }
-
-    if (blk_pread(s->drive, 0, boot_block, sizeof(boot_block)) < 0) {
+    if (blk_pread(drive, 0, boot_block, sizeof(boot_block)) < 0) {
         hw_error("%s: Cannot read boot block\n", __func__);
     }
 
@@ -126,10 +127,10 @@ static uint32_t cxd_init_loader(CxdState *s)
     loader_base = *(uint32_t *) (boot_block + 0x50);
 
     loader_buffer = g_malloc(loader_size);
-    if (blk_pread(s->drive, loader_offset, loader_buffer, loader_size) < 0) {
-        hw_error("%s: Cannot read loader\n", __func__);
+    if (blk_pread(drive, loader_offset, loader_buffer, loader_size) < 0) {
+        hw_error("%s: Cannot read loader2\n", __func__);
     }
-    rom_add_blob_fixed("loader", loader_buffer, loader_size, loader_base);
+    rom_add_blob_fixed("loader2", loader_buffer, loader_size, loader_base);
     g_free(loader_buffer);
 
     return loader_base;
@@ -184,6 +185,11 @@ static void cxd4115_init(MachineState *machine)
     memory_region_init_ram(mem, NULL, "sram", CXD4115_SRAM_SIZE, &error_fatal);
     memory_region_add_subregion(get_system_memory(), CXD4115_SRAM_BASE, mem);
 
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "bootrom", CXD4115_BOOTROM_SIZE, &error_fatal);
+    memory_region_set_readonly(mem, true);
+    memory_region_add_subregion(get_system_memory(), CXD4115_BOOTROM_BASE, mem);
+
     dev = qdev_create(NULL, TYPE_ARM11MPCORE_PRIV);
     qdev_prop_set_uint32(dev, "num-cpu", 1);
     qdev_prop_set_uint32(dev, "num-irq", CXD4115_NUM_IRQ);
@@ -230,8 +236,11 @@ static void cxd4115_init(MachineState *machine)
 
         uint32_t boot_device = 1;
         rom_add_blob_fixed("boot_device", &boot_device, sizeof(boot_device), CXD4115_DDR_BASE + CXD4115_BOOT_DEVICE_OFFSET);
-    } else {
-        s->loader_base = cxd_init_loader(s);
+    } else if (bios_name) {
+        load_image_targphys(bios_name, CXD4115_BOOTROM_BASE, CXD4115_BOOTROM_SIZE);
+        s->loader_base = CXD4115_BOOTROM_BASE;
+    } else if (s->drive) {
+        s->loader_base = cxd_init_loader2(s->drive);
     }
 
     cxd_add_const_reg("gpio0_data", CXD4115_GPIO_BASE + 4, 0x48000);
@@ -263,6 +272,11 @@ static void cxd4132_init(MachineState *machine)
     memory_region_init_ram(mem, NULL, "sram", CXD4132_SRAM_SIZE, &error_fatal);
     memory_region_add_subregion(get_system_memory(), CXD4132_SRAM_BASE, mem);
 
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "bootrom", CXD4132_BOOTROM_SIZE, &error_fatal);
+    memory_region_set_readonly(mem, true);
+    memory_region_add_subregion(get_system_memory(), CXD4132_BOOTROM_BASE, mem);
+
     dev = qdev_create(NULL, TYPE_ARM11MPCORE_PRIV);
     qdev_prop_set_uint32(dev, "num-cpu", 1);
     qdev_prop_set_uint32(dev, "num-irq", CXD4132_NUM_IRQ);
@@ -286,6 +300,11 @@ static void cxd4132_init(MachineState *machine)
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_USB_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_USB - CXD4132_IRQ_OFFSET]);
+
+    dev = qdev_create(NULL, "bionz_bootcon");
+    qdev_prop_set_chr(dev, "chardev", serial_hds[0]);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_BOOTCON_BASE);
 
     dev = qdev_create(NULL, "bionz_dma");
     qdev_prop_set_uint32(dev, "version", 2);
@@ -321,8 +340,11 @@ static void cxd4132_init(MachineState *machine)
 
         uint32_t boot_device = 1;
         rom_add_blob_fixed("boot_device", &boot_device, sizeof(boot_device), CXD4132_DDR_BASE + CXD4132_BOOT_DEVICE_OFFSET);
-    } else {
-        s->loader_base = cxd_init_loader(s);
+    } else if (bios_name) {
+        load_image_targphys(bios_name, CXD4132_BOOTROM_BASE, CXD4132_BOOTROM_SIZE);
+        s->loader_base = CXD4132_BOOTROM_BASE;
+    } else if (s->drive) {
+        s->loader_base = cxd_init_loader2(s->drive);
     }
 
     cxd_add_const_reg("miscctrl_readdone", CXD4132_MISCCTRL_BASE(1), 1);
