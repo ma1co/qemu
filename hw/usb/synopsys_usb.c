@@ -25,7 +25,6 @@
 
 #define GOTGCTL  0x0
 #define GAHBCFG  0x8
-#define GRSTCTL  0x10
 #define GINTSTS  0x14
 #define GINTMSK  0x18
 #define GHWCFG1  0x44
@@ -41,7 +40,7 @@
 #define INEP_BASE  0x900
 #define OUTEP_BASE 0xB00
 #define EP_SIZE    0x20
-#define NUM_EP     8
+#define NUM_EP     5
 
 #define DEPCTL  0x00
 #define DEPINT  0x08
@@ -53,8 +52,6 @@
 #define GAHBCFG_GLBLINTRMSK (1 << 0)
 #define GAHBCFG_DMAEN       (1 << 5)
 
-#define GRSTCTL_CSFTRST (1 << 0)
-
 #define GINTMSK_GINNAKEFF  (1 << 6)
 #define GINTMSK_GOUTNAKEFF (1 << 7)
 #define GINTMSK_RESET      (1 << 12)
@@ -63,10 +60,6 @@
 #define GINTMSK_OEP        (1 << 19)
 
 #define GHWCFG2_NUMDEVEPS_SHIFT     10
-#define GHWCFG3_XFERSIZEWIDTH_SHIFT 0
-#define GHWCFG3_PKTSIZEWIDTH_SHIFT  4
-#define GHWCFG3_DFIFODEPTH_SHIFT    16
-#define GHWCFG4_INEPS_SHIFT         26
 
 #define DCTL_GNPINNAKSTS (1 << 2)
 #define DCTL_GOUTNAKSTS  (1 << 3)
@@ -109,7 +102,6 @@ typedef struct SynopsysUsbState {
 
     uint32_t port;
     TcpUsbState tcp_usb_state;
-    QemuThread thread;
 
     uint32_t gotgctl;
     uint32_t gahbcfg;
@@ -190,6 +182,10 @@ static int synopsys_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char
     }
     eps = (header->ep & USB_DIR_IN) ? &s->in_eps[ep] : &s->out_eps[ep];
 
+    if (header->length == 0) {
+        return 0;
+    }
+
     if (!(header->flags & tcp_usb_setup)) {
         if ((eps->depctl & DEPCTL_STALL)) {
             return USB_RET_STALL;
@@ -233,13 +229,10 @@ static int synopsys_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char
         eps->depint |= DEPINT_SETUP;
     } else {
         sz -= count;
-
         eps->deptsiz &= ~(DEPTSIZ_XFERSIZ_MASK << DEPTSIZ_XFERSIZ_SHIFT);
         eps->deptsiz |= (sz & DEPTSIZ_XFERSIZ_MASK) << DEPTSIZ_XFERSIZ_SHIFT;
 
-        if (sz == 0) {
-            eps->depint |= DEPINT_XFERCOMPL;
-        }
+        eps->depint |= DEPINT_XFERCOMPL;
     }
 
     synopsys_usb_update_irq(s);
@@ -323,9 +316,6 @@ static uint64_t synopsys_usb_read(void *arg, hwaddr offset, unsigned size)
             case GAHBCFG:
                 return s->gahbcfg;
 
-            case GRSTCTL:
-                return 0;
-
             case GINTSTS:
                 return s->gintsts;
 
@@ -385,14 +375,6 @@ static void synopsys_usb_write(void *arg, hwaddr offset, uint64_t value, unsigne
                 synopsys_usb_update_irq(s);
                 break;
 
-            case GRSTCTL:
-                if (value & GRSTCTL_CSFTRST) {
-                    if (tcp_usb_serve(&s->tcp_usb_state, s->port) < 0) {
-                        hw_error("Failed to start tcp_usb server.\n");
-                    }
-                }
-                break;
-
             case GINTSTS:
                 if (value & GINTMSK_ENUMDONE) {
                     s->gintmsk &= ~GINTMSK_ENUMDONE;
@@ -404,6 +386,11 @@ static void synopsys_usb_write(void *arg, hwaddr offset, uint64_t value, unsigne
             case GINTMSK:
                 if (value & GINTMSK_ENUMDONE) {
                     s->gintsts |= GINTMSK_ENUMDONE;
+                }
+                if (value & GINTMSK_RESET) {
+                    if (tcp_usb_serve(&s->tcp_usb_state, s->port) < 0) {
+                        hw_error("%s: failed to start tcp_usb server\n", __func__);
+                    }
                 }
                 s->gintmsk = value;
                 synopsys_usb_update_irq(s);
@@ -468,9 +455,9 @@ static void synopsys_usb_reset(DeviceState *dev)
     s->gintsts = 0;
     s->gintmsk = 0;
     s->ghwcfg1 = 0;
-    s->ghwcfg2 = 15 << GHWCFG2_NUMDEVEPS_SHIFT;
-    s->ghwcfg3 = ((19 - 11) << GHWCFG3_XFERSIZEWIDTH_SHIFT) | ((10 - 4) << GHWCFG3_PKTSIZEWIDTH_SHIFT) | (0x520 << GHWCFG3_DFIFODEPTH_SHIFT);
-    s->ghwcfg4 = 7 << GHWCFG4_INEPS_SHIFT;
+    s->ghwcfg2 = (NUM_EP - 1) << GHWCFG2_NUMDEVEPS_SHIFT;
+    s->ghwcfg3 = 0;
+    s->ghwcfg4 = 0;
     s->dctl = 0;
     s->diepmsk = 0;
     s->doepmsk = 0;
