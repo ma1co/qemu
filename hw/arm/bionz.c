@@ -18,6 +18,7 @@
 #define CXD4115_DDR_SIZE 0x10000000
 #define CXD4115_DMA_BASE 0x78008000
 #define CXD4115_DMA_NUM_CHANNEL 8
+#define CXD4115_USB_BASE 0x78020000
 #define CXD4115_ONA_BASE 0x78098000
 #define CXD4115_HWTIMER_BASE(i) (0x7a000000 + (i) * 0x20)
 #define CXD4115_NUM_HWTIMER 3
@@ -36,6 +37,8 @@
 #define CXD4115_IRQ_UART(i) (152 + (i))
 #define CXD4115_IRQ_HWTIMER(i) (155 + (i))
 #define CXD4115_IRQ_DMA(i) (168 + (i))
+#define CXD4115_IRQ_USB0 233
+#define CXD4115_IRQ_USB1 234
 
 #define CXD4115_BOOT_DEVICE_OFFSET 0x0000236c
 #define CXD4115_TEXT_OFFSET 0x00208000
@@ -217,6 +220,12 @@ static void cxd4115_init(MachineState *machine)
     for (i = 0; i < CXD4115_DMA_NUM_CHANNEL; i++) {
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4115_IRQ_DMA(i) - CXD4115_IRQ_OFFSET]);
     }
+
+    dev = qdev_create(NULL, "inventra_usb");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_USB_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4115_IRQ_USB0 - CXD4115_IRQ_OFFSET]);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 1, irq[CXD4115_IRQ_USB1 - CXD4115_IRQ_OFFSET]);
 
     for (i = 0; i < CXD4115_NUM_HWTIMER; i++) {
         dev = qdev_create(NULL, "bionz_hwtimer");
