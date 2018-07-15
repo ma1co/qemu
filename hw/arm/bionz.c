@@ -25,6 +25,7 @@
 #define CXD4115_UART_BASE(i) (0x7a050000 + (i) * 0x1000)
 #define CXD4115_NUM_UART 3
 #define CXD4115_GPIO_BASE 0x7a400000
+#define CXD4115_BOOTCON_BASE 0x7f000000
 #define CXD4115_SRAM_BASE 0xfff00000
 #define CXD4115_SRAM_SIZE 0x00008000
 #define CXD4115_MPCORE_BASE 0xfffd0000
@@ -237,6 +238,11 @@ static void cxd4115_init(MachineState *machine)
     for (i = 0; i < CXD4115_NUM_UART; i++) {
         pl011_create(CXD4115_UART_BASE(i), irq[CXD4115_IRQ_UART(i) - CXD4115_IRQ_OFFSET], serial_hds[i]);
     }
+
+    dev = qdev_create(NULL, "bionz_bootcon");
+    qdev_prop_set_chr(dev, "chardev", serial_hds[0]);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_BOOTCON_BASE);
 
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD4115_DDR_BASE + CXD4115_TEXT_OFFSET, CXD4115_DDR_SIZE - CXD4115_TEXT_OFFSET);
