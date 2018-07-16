@@ -6,6 +6,7 @@
 #include "hw/block/flash.h"
 #include "hw/boards.h"
 #include "hw/char/pl011.h"
+#include "hw/cpu/a9mpcore.h"
 #include "hw/cpu/arm11mpcore.h"
 #include "hw/loader.h"
 #include "qapi/error.h"
@@ -92,6 +93,26 @@
     "mem=64M@0x80000000@0 " \
     "memrsv=32K@0x80000000 " \
     "memrsv=0x1270000@0x82D90000 "
+
+//////////////////////////// CXD90014 ////////////////////////////
+#define CXD90014_DDR_BASE 0x80000000
+#define CXD90014_DDR_SIZE 0x40000000
+#define CXD90014_SRAM_BASE 0xc0000000
+#define CXD90014_SRAM_SIZE 0x01000000
+#define CXD90014_UART_BASE(i) (0xf2000000 + (i) * 0x1000)
+#define CXD90014_NUM_UART 3
+#define CXD90014_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
+#define CXD90014_NUM_HWTIMER 4
+#define CXD90014_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
+#define CXD90014_MPCORE_BASE 0xf8000000
+
+#define CXD90014_NUM_IRQ 256
+#define CXD90014_IRQ_OFFSET 32
+#define CXD90014_IRQ_UART(i) (150 + (i))
+#define CXD90014_IRQ_HWTIMER(i) (153 + (i))
+
+#define CXD90014_TEXT_OFFSET 0x00038000
+#define CXD90014_INITRD_OFFSET 0x00628000
 
 #define NAND_SECTOR_SIZE 0x200
 
@@ -368,6 +389,57 @@ static void cxd4132_init(MachineState *machine)
     qemu_register_reset(cxd_reset, s);
 }
 
+static void cxd90014_init(MachineState *machine)
+{
+    CxdState *s = CXD(machine);
+    MemoryRegion *mem;
+    DeviceState *dev;
+    qemu_irq irq[CXD90014_NUM_IRQ - CXD90014_IRQ_OFFSET];
+    int i;
+
+    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
+    qdev_init_nofail(DEVICE(&s->cpu));
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "ddr", CXD90014_DDR_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD90014_DDR_BASE, mem);
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "sram", CXD90014_SRAM_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD90014_SRAM_BASE, mem);
+
+    dev = qdev_create(NULL, TYPE_A9MPCORE_PRIV);
+    qdev_prop_set_uint32(dev, "num-cpu", 1);
+    qdev_prop_set_uint32(dev, "num-irq", CXD90014_NUM_IRQ);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_MPCORE_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    for (i = 0; i < CXD90014_NUM_IRQ - CXD90014_IRQ_OFFSET; i++) {
+        irq[i] = qdev_get_gpio_in(dev, i);
+    }
+
+    for (i = 0; i < CXD90014_NUM_UART; i++) {
+        pl011_create(CXD90014_UART_BASE(i), irq[CXD90014_IRQ_UART(i) - CXD90014_IRQ_OFFSET], serial_hds[i]);
+    }
+
+    for (i = 0; i < CXD90014_NUM_HWTIMER; i++) {
+        dev = qdev_create(NULL, "bionz_hwtimer");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_HWTIMER_BASE(i));
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90014_IRQ_HWTIMER(i) - CXD90014_IRQ_OFFSET]);
+    }
+
+    if (machine->kernel_filename) {
+        load_image_targphys(machine->kernel_filename, CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET, CXD90014_DDR_SIZE - CXD90014_TEXT_OFFSET);
+        load_image_targphys(machine->initrd_filename, CXD90014_DDR_BASE + CXD90014_INITRD_OFFSET, CXD90014_DDR_SIZE - CXD90014_INITRD_OFFSET);
+        s->loader_base = CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET;
+    }
+
+    cxd_add_const_reg("miscctrl_typeid", CXD90014_MISCCTRL_BASE(0), 0x500);
+
+    qemu_register_reset(cxd_reset, s);
+}
+
 static const TypeInfo cxd_info = {
     .name          = TYPE_CXD,
     .parent        = TYPE_MACHINE,
@@ -427,3 +499,26 @@ static void cxd4132_register_type(void)
 }
 
 type_init(cxd4132_register_type)
+
+static void cxd90014_class_init(ObjectClass *klass, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(klass);
+
+    mc->desc = "Sony BIONZ CXD90014";
+    mc->init = cxd90014_init;
+    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a9");
+    mc->ignore_memory_transaction_failures = true;
+}
+
+static const TypeInfo cxd90014_info = {
+    .name          = MACHINE_TYPE_NAME("cxd90014"),
+    .parent        = TYPE_CXD,
+    .class_init    = cxd90014_class_init,
+};
+
+static void cxd90014_register_type(void)
+{
+    type_register_static(&cxd90014_info);
+}
+
+type_init(cxd90014_register_type)
