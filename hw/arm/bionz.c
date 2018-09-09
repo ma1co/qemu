@@ -261,11 +261,11 @@ static void cxd4115_init(MachineState *machine)
     }
 
     for (i = 0; i < CXD4115_NUM_UART; i++) {
-        pl011_create(CXD4115_UART_BASE(i), irq[CXD4115_IRQ_UART(i) - CXD4115_IRQ_OFFSET], serial_hds[i]);
+        pl011_create(CXD4115_UART_BASE(i), irq[CXD4115_IRQ_UART(i) - CXD4115_IRQ_OFFSET], serial_hd(i));
     }
 
     dev = qdev_create(NULL, "bionz_bootcon");
-    qdev_prop_set_chr(dev, "chardev", serial_hds[0]);
+    qdev_prop_set_chr(dev, "chardev", serial_hd(0));
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_BOOTCON_BASE);
 
@@ -342,7 +342,7 @@ static void cxd4132_init(MachineState *machine)
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_USB - CXD4132_IRQ_OFFSET]);
 
     dev = qdev_create(NULL, "bionz_bootcon");
-    qdev_prop_set_chr(dev, "chardev", serial_hds[0]);
+    qdev_prop_set_chr(dev, "chardev", serial_hd(0));
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_BOOTCON_BASE);
 
@@ -369,7 +369,7 @@ static void cxd4132_init(MachineState *machine)
     }
 
     for (i = 0; i < CXD4132_NUM_UART; i++) {
-        pl011_create(CXD4132_UART_BASE(i), irq[CXD4132_IRQ_UART(i) - CXD4132_IRQ_OFFSET], serial_hds[i]);
+        pl011_create(CXD4132_UART_BASE(i), irq[CXD4132_IRQ_UART(i) - CXD4132_IRQ_OFFSET], serial_hd(i));
     }
 
     if (machine->kernel_filename) {
@@ -437,12 +437,12 @@ static void cxd90014_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_NAND_BASE);
 
     dev = qdev_create(NULL, "bionz_bootcon");
-    qdev_prop_set_chr(dev, "chardev", serial_hds[0]);
+    qdev_prop_set_chr(dev, "chardev", serial_hd(0));
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_BOOTCON_BASE);
 
     for (i = 0; i < CXD90014_NUM_UART; i++) {
-        pl011_create(CXD90014_UART_BASE(i), irq[CXD90014_IRQ_UART(i) - CXD90014_IRQ_OFFSET], serial_hds[i]);
+        pl011_create(CXD90014_UART_BASE(i), irq[CXD90014_IRQ_UART(i) - CXD90014_IRQ_OFFSET], serial_hd(i));
     }
 
     for (i = 0; i < CXD90014_NUM_HWTIMER; i++) {
