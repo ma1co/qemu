@@ -95,16 +95,20 @@
     "memrsv=0x1270000@0x82D90000 "
 
 //////////////////////////// CXD90014 ////////////////////////////
+#define CXD90014_NAND_BASE 0x10000000
 #define CXD90014_DDR_BASE 0x80000000
 #define CXD90014_DDR_SIZE 0x40000000
 #define CXD90014_SRAM_BASE 0xc0000000
 #define CXD90014_SRAM_SIZE 0x01000000
+#define CXD90014_BOOTCON_BASE 0xc0005030
 #define CXD90014_UART_BASE(i) (0xf2000000 + (i) * 0x1000)
 #define CXD90014_NUM_UART 3
 #define CXD90014_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90014_NUM_HWTIMER 4
 #define CXD90014_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
 #define CXD90014_MPCORE_BASE 0xf8000000
+#define CXD90014_BOOTROM_BASE 0xffff0000
+#define CXD90014_BOOTROM_SIZE 0x00006000
 
 #define CXD90014_NUM_IRQ 256
 #define CXD90014_IRQ_OFFSET 32
@@ -392,10 +396,14 @@ static void cxd4132_init(MachineState *machine)
 static void cxd90014_init(MachineState *machine)
 {
     CxdState *s = CXD(machine);
+    DriveInfo *dinfo;
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[CXD90014_NUM_IRQ - CXD90014_IRQ_OFFSET];
     int i;
+
+    dinfo = drive_get(IF_MTD, 0, 0);
+    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
     object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
     qdev_init_nofail(DEVICE(&s->cpu));
@@ -408,6 +416,11 @@ static void cxd90014_init(MachineState *machine)
     memory_region_init_ram(mem, NULL, "sram", CXD90014_SRAM_SIZE, &error_fatal);
     memory_region_add_subregion(get_system_memory(), CXD90014_SRAM_BASE, mem);
 
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "bootrom", CXD90014_BOOTROM_SIZE, &error_fatal);
+    memory_region_set_readonly(mem, true);
+    memory_region_add_subregion(get_system_memory(), CXD90014_BOOTROM_BASE, mem);
+
     dev = qdev_create(NULL, TYPE_A9MPCORE_PRIV);
     qdev_prop_set_uint32(dev, "num-cpu", 1);
     qdev_prop_set_uint32(dev, "num-irq", CXD90014_NUM_IRQ);
@@ -417,6 +430,16 @@ static void cxd90014_init(MachineState *machine)
     for (i = 0; i < CXD90014_NUM_IRQ - CXD90014_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
     }
+
+    dev = qdev_create(NULL, "bionz_nand");
+    qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_NAND_BASE);
+
+    dev = qdev_create(NULL, "bionz_bootcon");
+    qdev_prop_set_chr(dev, "chardev", serial_hds[0]);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_BOOTCON_BASE);
 
     for (i = 0; i < CXD90014_NUM_UART; i++) {
         pl011_create(CXD90014_UART_BASE(i), irq[CXD90014_IRQ_UART(i) - CXD90014_IRQ_OFFSET], serial_hds[i]);
@@ -433,9 +456,15 @@ static void cxd90014_init(MachineState *machine)
         load_image_targphys(machine->kernel_filename, CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET, CXD90014_DDR_SIZE - CXD90014_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD90014_DDR_BASE + CXD90014_INITRD_OFFSET, CXD90014_DDR_SIZE - CXD90014_INITRD_OFFSET);
         s->loader_base = CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET;
+    } else if (bios_name) {
+        load_image_targphys(bios_name, CXD90014_BOOTROM_BASE, CXD90014_BOOTROM_SIZE);
+        s->loader_base = CXD90014_BOOTROM_BASE;
     }
 
     cxd_add_const_reg("miscctrl_typeid", CXD90014_MISCCTRL_BASE(0), 0x500);
+    cxd_add_const_reg("miscctrl_mode", CXD90014_MISCCTRL_BASE(1), 0x0c010003);
+
+    cxd_add_const_reg("nandreg_410", 0x20410, 0x2040);
 
     qemu_register_reset(cxd_reset, s);
 }
