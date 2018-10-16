@@ -95,7 +95,8 @@
     "memrsv=0x1270000@0x82D90000 "
 
 //////////////////////////// CXD90014 ////////////////////////////
-#define CXD90014_NAND_BASE 0x10000000
+#define CXD90014_NAND_REG_BASE 0x00020000
+#define CXD90014_NAND_DATA_BASE 0x10000000
 #define CXD90014_DDR_BASE 0x80000000
 #define CXD90014_DDR_SIZE 0x40000000
 #define CXD90014_SRAM_BASE 0xc0000000
@@ -434,7 +435,8 @@ static void cxd90014_init(MachineState *machine)
     dev = qdev_create(NULL, "bionz_nand");
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);
-    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_NAND_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_NAND_REG_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90014_NAND_DATA_BASE);
 
     dev = qdev_create(NULL, "bionz_bootcon");
     qdev_prop_set_chr(dev, "chardev", serial_hd(0));
@@ -463,8 +465,6 @@ static void cxd90014_init(MachineState *machine)
 
     cxd_add_const_reg("miscctrl_typeid", CXD90014_MISCCTRL_BASE(0), 0x500);
     cxd_add_const_reg("miscctrl_mode", CXD90014_MISCCTRL_BASE(1), 0x0c010003);
-
-    cxd_add_const_reg("nandreg_410", 0x20410, 0x2040);
 
     qemu_register_reset(cxd_reset, s);
 }
