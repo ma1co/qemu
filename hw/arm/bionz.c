@@ -95,6 +95,8 @@
     "memrsv=0x1270000@0x82D90000 "
 
 //////////////////////////// CXD90014 ////////////////////////////
+#define CXD90014_BOSS_SRAM_BASE 0x00000000
+#define CXD90014_BOSS_IO_BASE 0x00011000
 #define CXD90014_NAND_REG_BASE 0x00020000
 #define CXD90014_NAND_DATA_BASE 0x10000000
 #define CXD90014_DDR_BASE 0x80000000
@@ -106,6 +108,7 @@
 #define CXD90014_NUM_UART 3
 #define CXD90014_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90014_NUM_HWTIMER 4
+#define CXD90014_BOSS_CLKRST_BASE 0xf29000d0
 #define CXD90014_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
 #define CXD90014_MPCORE_BASE 0xf8000000
 #define CXD90014_BOOTROM_BASE 0xffff0000
@@ -115,6 +118,7 @@
 #define CXD90014_IRQ_OFFSET 32
 #define CXD90014_IRQ_UART(i) (150 + (i))
 #define CXD90014_IRQ_HWTIMER(i) (153 + (i))
+#define CXD90014_IRQ_BOSS 170
 
 #define CXD90014_TEXT_OFFSET 0x00038000
 #define CXD90014_INITRD_OFFSET 0x00628000
@@ -401,6 +405,7 @@ static void cxd90014_init(MachineState *machine)
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[CXD90014_NUM_IRQ - CXD90014_IRQ_OFFSET];
+    qemu_irq boss_irq;
     int i;
 
     dinfo = drive_get(IF_MTD, 0, 0);
@@ -432,11 +437,20 @@ static void cxd90014_init(MachineState *machine)
         irq[i] = qdev_get_gpio_in(dev, i);
     }
 
+    dev = qdev_create(NULL, "bionz_boss");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_BOSS_SRAM_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90014_BOSS_IO_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 2, CXD90014_BOSS_CLKRST_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90014_IRQ_BOSS - CXD90014_IRQ_OFFSET]);
+    boss_irq = qdev_get_gpio_in(dev, 0);
+
     dev = qdev_create(NULL, "bionz_nand");
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_NAND_REG_BASE);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90014_NAND_DATA_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, boss_irq);
 
     dev = qdev_create(NULL, "bionz_bootcon");
     qdev_prop_set_chr(dev, "chardev", serial_hd(0));
@@ -536,6 +550,8 @@ static void cxd90014_class_init(ObjectClass *klass, void *data)
     mc->desc = "Sony BIONZ CXD90014";
     mc->init = cxd90014_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a9");
+    mc->max_cpus = 2;
+    mc->default_cpus = 2;// main + boss
     mc->ignore_memory_transaction_failures = true;
 }
 
