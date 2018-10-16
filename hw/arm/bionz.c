@@ -104,6 +104,7 @@
 #define CXD90014_SRAM_BASE 0xc0000000
 #define CXD90014_SRAM_SIZE 0x01000000
 #define CXD90014_BOOTCON_BASE 0xc0005030
+#define CXD90014_DDMC_BASE 0xf0104000
 #define CXD90014_UART_BASE(i) (0xf2000000 + (i) * 0x1000)
 #define CXD90014_NUM_UART 3
 #define CXD90014_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
@@ -412,6 +413,7 @@ static void cxd90014_init(MachineState *machine)
     s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
     object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
+    object_property_set_bool(OBJECT(&s->cpu), false, "has_el3", &error_fatal);
     qdev_init_nofail(DEVICE(&s->cpu));
 
     mem = g_new(MemoryRegion, 1);
@@ -479,6 +481,8 @@ static void cxd90014_init(MachineState *machine)
 
     cxd_add_const_reg("miscctrl_typeid", CXD90014_MISCCTRL_BASE(0), 0x500);
     cxd_add_const_reg("miscctrl_mode", CXD90014_MISCCTRL_BASE(1), 0x0c010003);
+
+    cxd_add_const_reg("ddmc_ctl_int_status", CXD90014_DDMC_BASE + 0x128, 0x10);
 
     qemu_register_reset(cxd_reset, s);
 }
