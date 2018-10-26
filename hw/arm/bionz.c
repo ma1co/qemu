@@ -105,12 +105,15 @@
 #define CXD90014_SRAM_SIZE 0x01000000
 #define CXD90014_BOOTCON_BASE 0xc0005030
 #define CXD90014_DDMC_BASE 0xf0104000
+#define CXD90014_USB_HDMAC_BASE 0xf0204000
+#define CXD90014_USB_BASE 0xf0210000
 #define CXD90014_UART_BASE(i) (0xf2000000 + (i) * 0x1000)
 #define CXD90014_NUM_UART 3
 #define CXD90014_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90014_NUM_HWTIMER 4
 #define CXD90014_BOSS_CLKRST_BASE 0xf29000d0
 #define CXD90014_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
+#define CXD90014_USB_OTG_BASE 0xf2920000
 #define CXD90014_MPCORE_BASE 0xf8000000
 #define CXD90014_BOOTROM_BASE 0xffff0000
 #define CXD90014_BOOTROM_SIZE 0x00006000
@@ -120,6 +123,7 @@
 #define CXD90014_IRQ_UART(i) (150 + (i))
 #define CXD90014_IRQ_HWTIMER(i) (153 + (i))
 #define CXD90014_IRQ_BOSS 170
+#define CXD90014_IRQ_USB 227
 
 #define CXD90014_TEXT_OFFSET 0x00038000
 #define CXD90014_INITRD_OFFSET 0x00628000
@@ -459,6 +463,12 @@ static void cxd90014_init(MachineState *machine)
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_BOOTCON_BASE);
 
+    dev = qdev_create(NULL, "fujitsu_usb");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_USB_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90014_USB_HDMAC_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90014_IRQ_USB - CXD90014_IRQ_OFFSET]);
+
     for (i = 0; i < CXD90014_NUM_UART; i++) {
         pl011_create(CXD90014_UART_BASE(i), irq[CXD90014_IRQ_UART(i) - CXD90014_IRQ_OFFSET], serial_hd(i));
     }
@@ -483,6 +493,8 @@ static void cxd90014_init(MachineState *machine)
     cxd_add_const_reg("miscctrl_mode", CXD90014_MISCCTRL_BASE(1), 0x0c010003);
 
     cxd_add_const_reg("ddmc_ctl_int_status", CXD90014_DDMC_BASE + 0x128, 0x10);
+
+    cxd_add_const_reg("fusb_otg_usb_id_ext", CXD90014_USB_OTG_BASE + 0x10, 2);
 
     qemu_register_reset(cxd_reset, s);
 }
