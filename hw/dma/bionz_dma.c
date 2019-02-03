@@ -38,41 +38,89 @@ static void dma_update_irq(DmaState *s)
     }
 }
 
+static void dma_transfer_mem2mem(DmaState *s, uint32_t src, uint32_t dst, uint32_t size)
+{
+    void *buffer;
+
+    buffer = g_malloc(size);
+    cpu_physical_memory_read(src, buffer, size);
+    cpu_physical_memory_write(dst, buffer, size);
+    g_free(buffer);
+}
+
+static void dma_transfer_mem2peripheral(DmaState *s, uint32_t src, uint32_t dst, uint32_t size)
+{
+    unsigned char *buffer;
+    size_t i, sz;
+
+    buffer = g_malloc(size);
+    cpu_physical_memory_read(src, buffer, size);
+    for (i = 0; i < size; i += 4) {
+        sz = min(size - i, 4);
+        cpu_physical_memory_write(dst, buffer + i, sz);
+    }
+    g_free(buffer);
+}
+
+static void dma_transfer_peripheral2mem(DmaState *s, uint32_t src, uint32_t dst, uint32_t size)
+{
+    unsigned char *buffer;
+    size_t i, sz;
+
+    buffer = g_malloc(size);
+    for (i = 0; i < size; i += 4) {
+        sz = min(size - i, 4);
+        cpu_physical_memory_read(src, buffer + i, sz);
+    }
+    cpu_physical_memory_write(dst, buffer, size);
+    g_free(buffer);
+}
+
 static void dma_run(DmaState *s, unsigned ch)
 {
-    LinkedListItem lli;
-    int size, sshift, dshift, sinc, dinc, intr;
-
-    if (s->conf_reg[ch] & 0x2000000) {
-        cpu_physical_memory_read(s->lli_reg[ch] & ~3, &lli, sizeof(lli));
-    } else {
-        lli = s->regs[ch];
-    }
+    int enable, flow, srcdev, dstdev, sshift, dshift, sinc, dinc, intr;
+    uint32_t ldec_ctrl, size;
 
     while (1) {
+        enable = s->conf_reg[ch] & 1;
+        flow = (s->conf_reg[ch] >> 11) & 7;
+        srcdev = (s->conf_reg[ch] >> 1) & 0xf;
+        dstdev = (s->conf_reg[ch] >> 6) & 0xf;
+
+        if (!enable) {
+            return;
+        }
+
+        LinkedListItem *lli = &s->regs[ch];
+
+        if (s->conf_reg[ch] & 0x2000000) {
+            cpu_physical_memory_read(s->lli_reg[ch] & ~3, lli, sizeof(*lli));
+            s->conf_reg[ch] &= ~0x2000000;
+        }
+
         switch (s->version) {
             case 1:
-                size = lli.ctrl & 0xfff;
+                size = lli->ctrl & 0xfff;
                 if (size == 0) {
                     size = 0x1000;
                 }
-                sshift = (lli.ctrl >> 18) & 7;
-                dshift = (lli.ctrl >> 21) & 7;
-                sinc = (lli.ctrl >> 26) & 1;
-                dinc = (lli.ctrl >> 27) & 1;
-                intr = (lli.ctrl >> 31) & 1;
+                sshift = (lli->ctrl >> 18) & 7;
+                dshift = (lli->ctrl >> 21) & 7;
+                sinc = (lli->ctrl >> 26) & 1;
+                dinc = (lli->ctrl >> 27) & 1;
+                intr = (lli->ctrl >> 31) & 1;
                 break;
 
             case 2:
-                size = lli.ctrl & 0x7ffff;
+                size = lli->ctrl & 0x7ffff;
                 if (size == 0) {
                     size = 0x80000;
                 }
-                sshift = (lli.ctrl >> 23) & 7;
-                dshift = (lli.ctrl >> 26) & 7;
-                sinc = (lli.ctrl >> 29) & 1;
-                dinc = (lli.ctrl >> 30) & 1;
-                intr = (lli.ctrl >> 31) & 1;
+                sshift = (lli->ctrl >> 23) & 7;
+                dshift = (lli->ctrl >> 26) & 7;
+                sinc = (lli->ctrl >> 29) & 1;
+                dinc = (lli->ctrl >> 30) & 1;
+                intr = (lli->ctrl >> 31) & 1;
                 break;
 
             default:
@@ -83,19 +131,78 @@ static void dma_run(DmaState *s, unsigned ch)
             hw_error("%s: unimplemented parameters\n", __func__);
         }
 
-        void *buffer = g_malloc(size << sshift);
-        cpu_physical_memory_read(lli.src, buffer, size << sshift);
-        cpu_physical_memory_write(lli.dst, buffer, size << dshift);
-        g_free(buffer);
+        size <<= sshift;
+
+        switch (flow) {
+            case 0:
+                dma_transfer_mem2mem(s, lli->src, lli->dst, size);
+                break;
+
+            case 1:
+                switch (dstdev) {
+                    case 6: // ldec
+                        break;
+
+                    default:
+                        hw_error("%s: unsupported dma peripheral\n", __func__);
+                }
+
+                dma_transfer_mem2peripheral(s, lli->src, lli->dst, size);
+                break;
+
+            case 2:
+                switch (srcdev) {
+                    case 7: // ldec
+                        cpu_physical_memory_read(lli->src & ~0x7fff, &ldec_ctrl, sizeof(ldec_ctrl));
+                        if (!(ldec_ctrl & 2)) {
+                            // not enabled
+                            return;
+                        }
+                        break;
+
+                    default:
+                        hw_error("%s: unsupported dma peripheral\n", __func__);
+                }
+
+                dma_transfer_peripheral2mem(s, lli->src, lli->dst, size);
+                break;
+
+            default:
+                hw_error("%s: unsupported dma flow\n", __func__);
+        }
+
+        switch (s->version) {
+            case 1:
+                lli->ctrl &= ~0xfff;
+                break;
+
+            case 2:
+                lli->ctrl &= ~0x7ffff;
+                break;
+
+            default:
+                hw_error("%s: unknown version\n", __func__);
+        }
 
         if (intr) {
             s->int_reg |= 1 << ch;
             dma_update_irq(s);
         }
 
-        if (!lli.next_lli)
-            break;
-        cpu_physical_memory_read(lli.next_lli, &lli, sizeof(lli));
+        if (lli->next_lli & ~3) {
+            cpu_physical_memory_read(lli->next_lli & ~3, lli, sizeof(*lli));
+        } else {
+            s->conf_reg[ch] &= ~1;
+        }
+    }
+}
+
+static void dma_run_all(DmaState *s)
+{
+    unsigned ch;
+
+    for (ch = 0; ch < MAX_CHANNEL; ch++) {
+        dma_run(s, ch);
     }
 }
 
@@ -128,9 +235,9 @@ static void dma_ch_write(void *opaque, unsigned ch, hwaddr offset, uint64_t valu
 
         case 0x10:
             // channel configuration register
-            s->conf_reg[ch] = value & ~1;
+            s->conf_reg[ch] = value;
             if (value & 1) {
-                dma_run(s, ch);
+                dma_run_all(s);
             }
             break;
 

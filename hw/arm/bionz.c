@@ -20,6 +20,7 @@
 #define CXD4115_DMA_BASE 0x78008000
 #define CXD4115_DMA_NUM_CHANNEL 8
 #define CXD4115_USB_BASE 0x78020000
+#define CXD4115_LDEC_BASE 0x78090000
 #define CXD4115_ONA_BASE 0x78098000
 #define CXD4115_HWTIMER_BASE(i) (0x7a000000 + (i) * 0x20)
 #define CXD4115_NUM_HWTIMER 3
@@ -262,6 +263,10 @@ static void cxd4115_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_USB_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4115_IRQ_USB0 - CXD4115_IRQ_OFFSET]);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 1, irq[CXD4115_IRQ_USB1 - CXD4115_IRQ_OFFSET]);
+
+    dev = qdev_create(NULL, "bionz_ldec");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_LDEC_BASE);
 
     for (i = 0; i < CXD4115_NUM_HWTIMER; i++) {
         dev = qdev_create(NULL, "bionz_hwtimer");
