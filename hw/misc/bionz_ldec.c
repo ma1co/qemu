@@ -140,7 +140,7 @@ static uint64_t ldec_fifo_read(void *opaque, hwaddr offset, unsigned size)
     ldec_run(s);
 
     value = 0;
-    sz = min(size, s->output_size - s->output_off);
+    sz = MIN(size, s->output_size - s->output_off);
     memcpy(&value, s->output_buf + s->output_off, sz);
     s->output_off += sz;
 

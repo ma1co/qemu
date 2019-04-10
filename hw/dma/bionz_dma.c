@@ -56,7 +56,7 @@ static void dma_transfer_mem2peripheral(DmaState *s, uint32_t src, uint32_t dst,
     buffer = g_malloc(size);
     cpu_physical_memory_read(src, buffer, size);
     for (i = 0; i < size; i += 4) {
-        sz = min(size - i, 4);
+        sz = MIN(size - i, 4);
         cpu_physical_memory_write(dst, buffer + i, sz);
     }
     g_free(buffer);
@@ -69,7 +69,7 @@ static void dma_transfer_peripheral2mem(DmaState *s, uint32_t src, uint32_t dst,
 
     buffer = g_malloc(size);
     for (i = 0; i < size; i += 4) {
-        sz = min(size - i, 4);
+        sz = MIN(size - i, 4);
         cpu_physical_memory_read(src, buffer + i, sz);
     }
     cpu_physical_memory_write(dst, buffer, size);
