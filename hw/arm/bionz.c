@@ -148,6 +148,30 @@
 #define CXD90014_TEXT_OFFSET 0x00038000
 #define CXD90014_INITRD_OFFSET 0x00628000
 
+//////////////////////////// CXD90045 ////////////////////////////
+#define CXD90045_DDR0_BASE 0x00000000
+#define CXD90045_DDR0_SIZE 0x40000000
+#define CXD90045_DDR1_BASE 0x80000000
+#define CXD90045_DDR1_SIZE 0x40000000
+#define CXD90045_SRAM_BASE 0xfe000000
+#define CXD90045_SRAM_SIZE 0x01000000
+#define CXD90045_BOOTCON_BASE 0xfe005030
+#define CXD90045_UART_BASE(i) (0xf2000000 + (i) * 0x1000)
+#define CXD90045_NUM_UART 4
+#define CXD90045_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
+#define CXD90045_NUM_HWTIMER 4
+#define CXD90045_MPCORE_BASE 0xf8000000
+#define CXD90045_BOOTROM_BASE 0xffff0000
+#define CXD90045_BOOTROM_SIZE 0x00006000
+
+#define CXD90045_NUM_IRQ 256
+#define CXD90045_IRQ_OFFSET 32
+#define CXD90045_IRQ_UART(i) ((i) == 3 ? 120 : (150 + (i)))
+#define CXD90045_IRQ_HWTIMER(i) (153 + (i))
+
+#define CXD90045_TEXT_OFFSET 0x00108000
+#define CXD90045_INITRD_OFFSET 0x00700000
+
 #define NAND_SECTOR_SIZE 0x200
 
 #define TYPE_CXD "cxd"
@@ -586,6 +610,73 @@ static void cxd90014_init(MachineState *machine)
     qemu_register_reset(cxd_reset, s);
 }
 
+static void cxd90045_init(MachineState *machine)
+{
+    CxdState *s = CXD(machine);
+    MemoryRegion *mem;
+    DeviceState *dev;
+    qemu_irq irq[CXD90045_NUM_IRQ - CXD90045_IRQ_OFFSET];
+    int i;
+
+    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
+    object_property_set_bool(OBJECT(&s->cpu), false, "has_el3", &error_fatal);
+    qdev_init_nofail(DEVICE(&s->cpu));
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "ddr0", CXD90045_DDR0_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD90045_DDR0_BASE, mem);
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "ddr1", CXD90045_DDR1_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD90045_DDR1_BASE, mem);
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "sram", CXD90045_SRAM_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD90045_SRAM_BASE, mem);
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "bootrom", CXD90045_BOOTROM_SIZE, &error_fatal);
+    memory_region_set_readonly(mem, true);
+    memory_region_add_subregion(get_system_memory(), CXD90045_BOOTROM_BASE, mem);
+
+    dev = qdev_create(NULL, TYPE_A9MPCORE_PRIV);
+    qdev_prop_set_uint32(dev, "num-cpu", 1);
+    qdev_prop_set_uint32(dev, "num-irq", CXD90045_NUM_IRQ);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_MPCORE_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    for (i = 0; i < CXD90045_NUM_IRQ - CXD90045_IRQ_OFFSET; i++) {
+        irq[i] = qdev_get_gpio_in(dev, i);
+    }
+
+    dev = qdev_create(NULL, "bionz_bootcon");
+    qdev_prop_set_chr(dev, "chardev", serial_hd(0));
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_BOOTCON_BASE);
+
+    for (i = 0; i < CXD90045_NUM_UART; i++) {
+        pl011_create(CXD90045_UART_BASE(i), irq[CXD90045_IRQ_UART(i) - CXD90045_IRQ_OFFSET], serial_hd(i));
+    }
+
+    for (i = 0; i < CXD90045_NUM_HWTIMER; i++) {
+        dev = qdev_create(NULL, "bionz_hwtimer");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_HWTIMER_BASE(i));
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90045_IRQ_HWTIMER(i) - CXD90045_IRQ_OFFSET]);
+    }
+
+    if (machine->kernel_filename) {
+        load_image_targphys(machine->kernel_filename, CXD90045_DDR0_BASE + CXD90045_TEXT_OFFSET, CXD90045_DDR0_SIZE - CXD90045_TEXT_OFFSET);
+        load_image_targphys(machine->initrd_filename, CXD90045_DDR0_BASE + CXD90045_INITRD_OFFSET, CXD90045_DDR0_SIZE - CXD90045_INITRD_OFFSET);
+        s->loader_base = CXD90045_DDR0_BASE + CXD90045_TEXT_OFFSET;
+    } else if (bios_name) {
+        load_image_targphys(bios_name, CXD90045_BOOTROM_BASE, CXD90045_BOOTROM_SIZE);
+        s->loader_base = CXD90045_BOOTROM_BASE;
+    }
+
+    qemu_register_reset(cxd_reset, s);
+}
+
 static const TypeInfo cxd_info = {
     .name          = TYPE_CXD,
     .parent        = TYPE_MACHINE,
@@ -693,3 +784,26 @@ static void cxd90014_register_type(void)
 }
 
 type_init(cxd90014_register_type)
+
+static void cxd90045_class_init(ObjectClass *klass, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(klass);
+
+    mc->desc = "Sony BIONZ CXD90045";
+    mc->init = cxd90045_init;
+    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a9");
+    mc->ignore_memory_transaction_failures = true;
+}
+
+static const TypeInfo cxd90045_info = {
+    .name          = MACHINE_TYPE_NAME("cxd90045"),
+    .parent        = TYPE_CXD,
+    .class_init    = cxd90045_class_init,
+};
+
+static void cxd90045_register_type(void)
+{
+    type_register_static(&cxd90045_info);
+}
+
+type_init(cxd90045_register_type)
