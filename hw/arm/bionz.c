@@ -13,6 +13,25 @@
 #include "sysemu/block-backend.h"
 #include "sysemu/sysemu.h"
 
+//////////////////////////// CXD4108 ////////////////////////////
+#define CXD4108_DDR_BASE 0x20000000
+#define CXD4108_DDR_SIZE 0x04000000
+#define CXD4108_UART_BASE(i) (0x74200000 + (i) * 0x100000)
+#define CXD4108_NUM_UART 3
+#define CXD4108_HWTIMER_BASE(i) (0x76000000 + (i) * 0x10000)
+#define CXD4108_NUM_HWTIMER 4
+#define CXD4108_INTC_BASE 0x76500000
+#define CXD4108_BOOTROM_BASE 0xffff0000
+#define CXD4108_BOOTROM_SIZE 0x00002000
+#define CXD4108_SRAM_BASE 0xffff2000
+#define CXD4108_SRAM_SIZE 0x00002000
+
+#define CXD4108_IRQ_CH_UART 0
+#define CXD4108_IRQ_CH_TIMER 2
+
+#define CXD4108_TEXT_OFFSET 0x00408000
+#define CXD4108_INITRD_OFFSET 0x0062e000
+
 //////////////////////////// CXD4115 ////////////////////////////
 #define CXD4115_NAND_BASE 0x00000000
 #define CXD4115_DDR_BASE 0x10000000
@@ -200,6 +219,69 @@ static void cxd_add_const_reg(const char *name, hwaddr base, uint32_t value)
     memory_region_init_ram_ptr(mem, NULL, name, sizeof(uint32_t), buffer);
     memory_region_set_readonly(mem, true);
     memory_region_add_subregion(get_system_memory(), base, mem);
+}
+
+static void cxd4108_init(MachineState *machine)
+{
+    CxdState *s = CXD(machine);
+    DriveInfo *dinfo;
+    MemoryRegion *mem;
+    DeviceState *dev;
+    qemu_irq irq[32][16];
+    int i, j;
+
+    dinfo = drive_get(IF_MTD, 0, 0);
+    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
+
+    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
+    qdev_init_nofail(DEVICE(&s->cpu));
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "ddr", CXD4108_DDR_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD4108_DDR_BASE, mem);
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "sram", CXD4108_SRAM_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD4108_SRAM_BASE, mem);
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_ram(mem, NULL, "bootrom", CXD4108_BOOTROM_SIZE, &error_fatal);
+    memory_region_set_readonly(mem, true);
+    memory_region_add_subregion(get_system_memory(), CXD4108_BOOTROM_BASE, mem);
+
+    dev = qdev_create(NULL, "bionz_intc");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_INTC_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    for (i = 0; i < 32; i++) {
+        for (j = 0; j < 16; j++) {
+            irq[i][j] = qdev_get_gpio_in(dev, i * 16 + j);
+        }
+    }
+
+    for (i = 0; i < CXD4108_NUM_UART; i++) {
+        pl011_create(CXD4108_UART_BASE(i), irq[CXD4108_IRQ_CH_UART][i], serial_hd(i));
+    }
+
+    for (i = 0; i < CXD4108_NUM_HWTIMER; i++) {
+        dev = qdev_create(NULL, "bionz_hwtimer");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_HWTIMER_BASE(i));
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_TIMER][i]);
+    }
+
+    if (machine->kernel_filename) {
+        load_image_targphys(machine->kernel_filename, CXD4108_DDR_BASE + CXD4108_TEXT_OFFSET, CXD4108_DDR_SIZE - CXD4108_TEXT_OFFSET);
+        load_image_targphys(machine->initrd_filename, CXD4108_DDR_BASE + CXD4108_INITRD_OFFSET, CXD4108_DDR_SIZE - CXD4108_INITRD_OFFSET);
+        s->loader_base = CXD4108_DDR_BASE + CXD4108_TEXT_OFFSET;
+    } else if (bios_name) {
+        load_image_targphys(bios_name, CXD4108_BOOTROM_BASE, CXD4108_BOOTROM_SIZE);
+        s->loader_base = CXD4108_BOOTROM_BASE;
+    } else if (s->drive) {
+        s->loader_base = cxd_init_loader2(s->drive);
+    }
+
+    qemu_register_reset(cxd_reset, s);
 }
 
 static void cxd4115_init(MachineState *machine)
@@ -517,6 +599,29 @@ static void cxd_register_type(void)
 }
 
 type_init(cxd_register_type)
+
+static void cxd4108_class_init(ObjectClass *klass, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(klass);
+
+    mc->desc = "Sony BIONZ CXD4108";
+    mc->init = cxd4108_init;
+    mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm926");
+    mc->ignore_memory_transaction_failures = true;
+}
+
+static const TypeInfo cxd4108_info = {
+    .name          = MACHINE_TYPE_NAME("cxd4108"),
+    .parent        = TYPE_CXD,
+    .class_init    = cxd4108_class_init,
+};
+
+static void cxd4108_register_type(void)
+{
+    type_register_static(&cxd4108_info);
+}
+
+type_init(cxd4108_register_type)
 
 static void cxd4115_class_init(ObjectClass *klass, void *data)
 {
