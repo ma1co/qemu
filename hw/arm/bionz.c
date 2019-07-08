@@ -14,13 +14,17 @@
 #include "sysemu/sysemu.h"
 
 //////////////////////////// CXD4108 ////////////////////////////
+#define CXD4108_NAND_BASE 0x00000000
 #define CXD4108_DDR_BASE 0x20000000
 #define CXD4108_DDR_SIZE 0x04000000
+#define CXD4108_DMA_BASE 0x70500000
+#define CXD4108_DMA_NUM_CHANNEL 8
 #define CXD4108_UART_BASE(i) (0x74200000 + (i) * 0x100000)
 #define CXD4108_NUM_UART 3
 #define CXD4108_HWTIMER_BASE(i) (0x76000000 + (i) * 0x10000)
 #define CXD4108_NUM_HWTIMER 4
 #define CXD4108_INTC_BASE 0x76500000
+#define CXD4108_GPIOSYS_BASE 0x76790000
 #define CXD4108_BOOTROM_BASE 0xffff0000
 #define CXD4108_BOOTROM_SIZE 0x00002000
 #define CXD4108_SRAM_BASE 0xffff2000
@@ -28,6 +32,9 @@
 
 #define CXD4108_IRQ_CH_UART 0
 #define CXD4108_IRQ_CH_TIMER 2
+#define CXD4108_IRQ_CH_DMA 3
+#define CXD4108_IRQ_CH_GPIO 19
+#define CXD4108_IRQ_GPIO_NAND 15
 
 #define CXD4108_TEXT_OFFSET 0x00408000
 #define CXD4108_INITRD_OFFSET 0x0062e000
@@ -252,6 +259,7 @@ static void cxd4108_init(MachineState *machine)
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[32][16];
+    qemu_irq gpio_irq[16];
     int i, j;
 
     dinfo = drive_get(IF_MTD, 0, 0);
@@ -282,6 +290,29 @@ static void cxd4108_init(MachineState *machine)
             irq[i][j] = qdev_get_gpio_in(dev, i * 16 + j);
         }
     }
+
+    dev = qdev_create(NULL, "bionz_gpiosys");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_GPIOSYS_BASE);
+    for (i = 0; i < 16; i++) {
+        gpio_irq[i] = qdev_get_gpio_in(dev, i);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_GPIO][i]);
+    }
+
+    dev = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(dev, "device_id", 0x20);
+    qdev_prop_set_int32(dev, "shift", 1);
+    qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_NAND_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio_irq[CXD4108_IRQ_GPIO_NAND]);
+
+    dev = qdev_create(NULL, "bionz_dma");
+    qdev_prop_set_uint32(dev, "version", 1);
+    qdev_prop_set_uint32(dev, "num-channel", CXD4108_DMA_NUM_CHANNEL);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_DMA_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), CXD4108_DMA_NUM_CHANNEL, irq[CXD4108_IRQ_CH_DMA][0]);
 
     for (i = 0; i < CXD4108_NUM_UART; i++) {
         pl011_create(CXD4108_UART_BASE(i), irq[CXD4108_IRQ_CH_UART][i], serial_hd(i));

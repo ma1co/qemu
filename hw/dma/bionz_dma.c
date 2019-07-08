@@ -19,7 +19,7 @@ typedef struct LinkedListItem {
 typedef struct DmaState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
-    qemu_irq intr[MAX_CHANNEL];
+    qemu_irq intr[MAX_CHANNEL + 1];
 
     uint32_t version;
     uint32_t num_channel;
@@ -36,6 +36,7 @@ static void dma_update_irq(DmaState *s)
     for (i = 0; i < s->num_channel; i++) {
         qemu_set_irq(s->intr[i], s->int_reg & (1 << i));
     }
+    qemu_set_irq(s->intr[s->num_channel], s->int_reg);
 }
 
 static void dma_transfer_mem2mem(DmaState *s, uint32_t src, uint32_t dst, uint32_t size)
@@ -328,7 +329,7 @@ static int dma_init(SysBusDevice *sbd)
     memory_region_init_io(&s->mmio, OBJECT(sbd), &dma_ops, s, TYPE_BIONZ_DMA, 0x1000);
     sysbus_init_mmio(sbd, &s->mmio);
 
-    for (i = 0; i < s->num_channel; i++) {
+    for (i = 0; i < s->num_channel + 1; i++) {
         sysbus_init_irq(sbd, &s->intr[i]);
     }
 
