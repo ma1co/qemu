@@ -33,8 +33,10 @@ typedef enum TcpUsbStateEnum {
 typedef struct TcpUsbHeader {
     uint8_t flags;
     uint8_t ep;
+    uint8_t pad[2];
     int32_t length;
-} __attribute__((packed)) TcpUsbHeader;
+} TcpUsbHeader;
+QEMU_BUILD_BUG_ON(sizeof(TcpUsbHeader) != 8);
 
 typedef int (*TcpUsbCallback)(void *arg, const TcpUsbHeader *header, char *buffer);
 
