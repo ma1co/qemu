@@ -69,7 +69,6 @@
 #define CXD4115_IRQ_USB0 233
 #define CXD4115_IRQ_USB1 234
 
-#define CXD4115_BOOT_DEVICE_OFFSET 0x0000236c
 #define CXD4115_TEXT_OFFSET 0x00208000
 #define CXD4115_INITRD_OFFSET 0x0062e000
 
@@ -102,7 +101,6 @@
 #define CXD4132_IRQ_NAND 183
 #define CXD4132_IRQ_USB 222
 
-#define CXD4132_BOOT_DEVICE_OFFSET 0x00005050
 #define CXD4132_CMDLINE_OFFSET 0x00013000
 #define CXD4132_TEXT_OFFSET 0x00018000
 #define CXD4132_INITRD_OFFSET 0x00408000
@@ -425,9 +423,6 @@ static void cxd4115_init(MachineState *machine)
         load_image_targphys(machine->kernel_filename, CXD4115_DDR_BASE + CXD4115_TEXT_OFFSET, CXD4115_DDR_SIZE - CXD4115_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD4115_DDR_BASE + CXD4115_INITRD_OFFSET, CXD4115_DDR_SIZE - CXD4115_INITRD_OFFSET);
         s->loader_base = CXD4115_DDR_BASE + CXD4115_TEXT_OFFSET;
-
-        uint32_t boot_device = 1;
-        rom_add_blob_fixed("boot_device", &boot_device, sizeof(boot_device), CXD4115_DDR_BASE + CXD4115_BOOT_DEVICE_OFFSET);
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD4115_BOOTROM_BASE, CXD4115_BOOTROM_SIZE);
         s->loader_base = CXD4115_BOOTROM_BASE;
@@ -529,9 +524,6 @@ static void cxd4132_init(MachineState *machine)
         load_image_targphys(machine->initrd_filename, CXD4132_DDR_BASE + CXD4132_INITRD_OFFSET, CXD4132_DDR_SIZE - CXD4132_INITRD_OFFSET);
         cxd_init_cmdline(CXD4132_CMDLINE, machine->kernel_cmdline, CXD4132_DDR_BASE + CXD4132_CMDLINE_OFFSET);
         s->loader_base = CXD4132_DDR_BASE + CXD4132_TEXT_OFFSET;
-
-        uint32_t boot_device = 1;
-        rom_add_blob_fixed("boot_device", &boot_device, sizeof(boot_device), CXD4132_DDR_BASE + CXD4132_BOOT_DEVICE_OFFSET);
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD4132_BOOTROM_BASE, CXD4132_BOOTROM_SIZE);
         s->loader_base = CXD4132_BOOTROM_BASE;
