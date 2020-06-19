@@ -62,11 +62,14 @@ typedef enum {
 
 enum SDCardModes {
     sd_inactive,
+    sd_boot_mode,
     sd_card_identification_mode,
     sd_data_transfer_mode,
 };
 
 enum SDCardStates {
+    sd_preidle_state = -3,
+    sd_boot_state = -2,
     sd_inactive_state = -1,
     sd_idle_state = 0,
     sd_ready_state,
@@ -80,6 +83,13 @@ enum SDCardStates {
     sd_bustest_state,
     sd_sleep_state,
 };
+
+typedef enum {
+    sd_invalid_partition = -1,
+    sd_user_partition = 0,
+    sd_boot1_partition,
+    sd_boot2_partition,
+} sd_partition_t;
 
 struct SDState {
     DeviceState parent_obj;
@@ -100,6 +110,7 @@ struct SDState {
     bool spi;
     bool emmc;
     bool high_capacity;
+    uint32_t boot_size;
 
     uint32_t mode;    /* current card mode, one of SDCardModes */
     int32_t state;    /* current card state, one of SDCardStates */
@@ -148,6 +159,12 @@ static const char *sd_state_name(enum SDCardStates state)
         [sd_bustest_state]          = "bustest",
         [sd_sleep_state]            = "sleep",
     };
+    if (state == sd_preidle_state) {
+        return "pre-idle";
+    }
+    if (state == sd_boot_state) {
+        return "boot";
+    }
     if (state == sd_inactive_state) {
         return "inactive";
     }
@@ -205,6 +222,11 @@ static void sd_set_mode(SDState *sd)
     switch (sd->state) {
     case sd_inactive_state:
         sd->mode = sd_inactive;
+        break;
+
+    case sd_preidle_state:
+    case sd_boot_state:
+        sd->mode = sd_boot_mode;
         break;
 
     case sd_idle_state:
@@ -369,6 +391,7 @@ static void sd_set_cid(SDState *sd)
     sd->cid[15] = (sd_crc7(sd->cid, 15) << 1) | 1;
 }
 
+#define BOOTSIZE_SHIFT	17			/* 128 kilobytes */
 #define HWBLOCK_SHIFT	9			/* 512 bytes */
 #define SECTOR_SHIFT	5			/* 16 kilobytes */
 #define WPGROUP_SHIFT	7			/* 2 megs */
@@ -385,6 +408,8 @@ static void sd_set_ext_csd(SDState *sd, uint64_t size)
     uint32_t sectcount = size >> HWBLOCK_SHIFT;
 
     memset(sd->ext_csd, 0, 512);
+    sd->ext_csd[228] = 0x7; /* Boot information */
+    sd->ext_csd[226] = sd->boot_size >> BOOTSIZE_SHIFT; /* Boot partition size */
     sd->ext_csd[215] = (sectcount >> 24) & 0xff; /* Sector count */
     sd->ext_csd[214] = (sectcount >> 16) & 0xff; /* ... */
     sd->ext_csd[213] = (sectcount >> 8) & 0xff;  /* ... */
@@ -392,6 +417,7 @@ static void sd_set_ext_csd(SDState *sd, uint64_t size)
     sd->ext_csd[196] = 0x3f; /* Device type */
     sd->ext_csd[194] = 0x2; /* CSD Structure version */
     sd->ext_csd[192] = 0x6; /* Extended CSD revision */
+    sd->ext_csd[179] = 0x8; /* Partition config */
 }
 
 static void sd_set_csd(SDState *sd, uint64_t size)
@@ -599,10 +625,11 @@ static void sd_reset(DeviceState *dev)
         sect = 0;
     }
     size = sect << 9;
+    size = (size > 2 * sd->boot_size) ? (size - 2 * sd->boot_size) : 0;
 
     sect = sd_addr_to_wpnum(size) + 1;
 
-    sd->state = sd_idle_state;
+    sd->state = sd->emmc ? sd_preidle_state : sd_idle_state;
     sd->rca = 0x0000;
     sd_set_ocr(sd);
     sd_set_scr(sd);
@@ -766,6 +793,78 @@ SDState *sd_init(BlockBackend *blk, bool is_spi)
     }
 
     return SD_CARD(dev);
+}
+
+static sd_partition_t sd_current_partition(SDState *sd)
+{
+    if (sd->emmc) {
+        switch (sd->ext_csd[179] & 7) {
+        case 0:
+            return sd_user_partition;
+
+        case 1:
+            return sd_boot1_partition;
+
+        case 2:
+            return sd_boot2_partition;
+
+        default:
+            return sd_invalid_partition;
+        }
+    }
+    return sd_user_partition;
+}
+
+static sd_partition_t sd_current_boot_partition(SDState *sd)
+{
+    if (sd->emmc) {
+        switch ((sd->ext_csd[179] >> 3) & 7) {
+        case 1:
+            return sd_boot1_partition;
+
+        case 2:
+            return sd_boot2_partition;
+
+        case 7:
+            return sd_user_partition;
+
+        default:
+            return sd_invalid_partition;
+        }
+    }
+    return sd_invalid_partition;
+}
+
+static uint64_t sd_partition_offset(SDState *sd, sd_partition_t p)
+{
+    switch (p) {
+    case sd_boot1_partition:
+        return 0;
+
+    case sd_boot2_partition:
+        return sd->boot_size;
+
+    case sd_user_partition:
+        return 2 * sd->boot_size;
+
+    default:
+        return 0;
+    }
+}
+
+static uint64_t sd_partition_size(SDState *sd, sd_partition_t p)
+{
+    switch (p) {
+    case sd_boot1_partition:
+    case sd_boot2_partition:
+        return sd->boot_size;
+
+    case sd_user_partition:
+        return sd->size;
+
+    default:
+        return 0;
+    }
 }
 
 void sd_set_cb(SDState *sd, qemu_irq readonly, qemu_irq insert)
@@ -959,13 +1058,27 @@ static sd_rsp_type_t sd_normal_command(SDState *sd, SDRequest req)
 
     switch (req.cmd) {
     /* Basic commands (Class 0 and Class 1) */
-    case 0:	/* CMD0:   GO_IDLE_STATE */
+    case 0:	/* CMD0:   GO_IDLE_STATE / GO_PRE_IDLE_STATE / BOOT_INITIATION */
+        if (sd->emmc && req.arg == 0xFFFFFFFA && sd_partition_size(sd, sd_current_boot_partition(sd)) >= 512) {
+            switch (sd->state) {
+            case sd_preidle_state:
+                sd->state = sd_boot_state;
+                sd->data_start = 0;
+                sd->data_offset = 0;
+                return sd_r0;
+
+            default:
+                break;
+            }
+            break;
+        }
+
         switch (sd->state) {
         case sd_inactive_state:
             return sd->spi ? sd_r1 : sd_r0;
 
         default:
-            sd->state = sd_idle_state;
+            sd->state = (sd->emmc && req.arg == 0xF0F0F0F0) ? sd_preidle_state : sd_idle_state;
             sd_reset(DEVICE(sd));
             return sd->spi ? sd_r1 : sd_r0;
         }
@@ -975,6 +1088,7 @@ static sd_rsp_type_t sd_normal_command(SDState *sd, SDRequest req)
         if (sd->emmc) {
             switch (sd->state) {
             case sd_idle_state:
+            case sd_preidle_state:
                 sd_ocr_powerup(sd);
                 sd->state = sd_ready_state;
                 return sd_r3;
@@ -1280,7 +1394,7 @@ static sd_rsp_type_t sd_normal_command(SDState *sd, SDRequest req)
             sd->data_start = addr;
             sd->data_offset = 0;
 
-            if (sd->data_start + sd->blk_len > sd->size)
+            if (sd->data_start + sd->blk_len > sd_partition_size(sd, sd_current_partition(sd)))
                 sd->card_status |= ADDRESS_ERROR;
             return sd_r1;
 
@@ -1296,7 +1410,7 @@ static sd_rsp_type_t sd_normal_command(SDState *sd, SDRequest req)
             sd->data_start = addr;
             sd->data_offset = 0;
 
-            if (sd->data_start + sd->blk_len > sd->size)
+            if (sd->data_start + sd->blk_len > sd_partition_size(sd, sd_current_partition(sd)))
                 sd->card_status |= ADDRESS_ERROR;
             return sd_r1;
 
@@ -1345,9 +1459,9 @@ static sd_rsp_type_t sd_normal_command(SDState *sd, SDRequest req)
             sd->data_offset = 0;
             sd->blk_written = 0;
 
-            if (sd->data_start + sd->blk_len > sd->size)
+            if (sd->data_start + sd->blk_len > sd_partition_size(sd, sd_current_partition(sd)))
                 sd->card_status |= ADDRESS_ERROR;
-            if (sd_wp_addr(sd, sd->data_start))
+            if (sd_current_partition(sd) == sd_user_partition && sd_wp_addr(sd, sd->data_start))
                 sd->card_status |= WP_VIOLATION;
             if (sd->csd[14] & 0x30)
                 sd->card_status |= WP_VIOLATION;
@@ -1369,9 +1483,9 @@ static sd_rsp_type_t sd_normal_command(SDState *sd, SDRequest req)
             sd->data_offset = 0;
             sd->blk_written = 0;
 
-            if (sd->data_start + sd->blk_len > sd->size)
+            if (sd->data_start + sd->blk_len > sd_partition_size(sd, sd_current_partition(sd)))
                 sd->card_status |= ADDRESS_ERROR;
-            if (sd_wp_addr(sd, sd->data_start))
+            if (sd_current_partition(sd) == sd_user_partition && sd_wp_addr(sd, sd->data_start))
                 sd->card_status |= WP_VIOLATION;
             if (sd->csd[14] & 0x30)
                 sd->card_status |= WP_VIOLATION;
@@ -1888,24 +2002,26 @@ send_response:
     return rsplen;
 }
 
-static void sd_blk_read(SDState *sd, uint64_t addr, uint32_t len)
+static void sd_blk_read(SDState *sd, sd_partition_t p, uint64_t addr, uint32_t len)
 {
+    addr += sd_partition_offset(sd, p);
     trace_sdcard_read_block(addr, len);
     if (!sd->blk || blk_pread(sd->blk, addr, sd->data, len) < 0) {
         fprintf(stderr, "sd_blk_read: read error on host side\n");
     }
 }
 
-static void sd_blk_write(SDState *sd, uint64_t addr, uint32_t len)
+static void sd_blk_write(SDState *sd, sd_partition_t p, uint64_t addr, uint32_t len)
 {
+    addr += sd_partition_offset(sd, p);
     trace_sdcard_write_block(addr, len);
     if (!sd->blk || blk_pwrite(sd->blk, addr, sd->data, len, 0) < 0) {
         fprintf(stderr, "sd_blk_write: write error on host side\n");
     }
 }
 
-#define BLK_READ_BLOCK(a, len)	sd_blk_read(sd, a, len)
-#define BLK_WRITE_BLOCK(a, len)	sd_blk_write(sd, a, len)
+#define BLK_READ_BLOCK(p, a, len)	sd_blk_read(sd, p, a, len)
+#define BLK_WRITE_BLOCK(p, a, len)	sd_blk_write(sd, p, a, len)
 #define APP_READ_BLOCK(a, len)	memset(sd->data, 0xec, len)
 #define APP_WRITE_BLOCK(a, len)
 
@@ -1934,7 +2050,7 @@ void sd_write_data(SDState *sd, uint8_t value)
         if (sd->data_offset >= sd->blk_len) {
             /* TODO: Check CRC before committing */
             sd->state = sd_programming_state;
-            BLK_WRITE_BLOCK(sd->data_start, sd->data_offset);
+            BLK_WRITE_BLOCK(sd_current_partition(sd), sd->data_start, sd->data_offset);
             sd->blk_written ++;
             sd->csd[14] |= 0x40;
             /* Bzzzzzzztt .... Operation complete.  */
@@ -1945,11 +2061,11 @@ void sd_write_data(SDState *sd, uint8_t value)
     case 25:	/* CMD25:  WRITE_MULTIPLE_BLOCK */
         if (sd->data_offset == 0) {
             /* Start of the block - let's check the address is valid */
-            if (sd->data_start + sd->blk_len > sd->size) {
+            if (sd->data_start + sd->blk_len > sd_partition_size(sd, sd_current_partition(sd))) {
                 sd->card_status |= ADDRESS_ERROR;
                 break;
             }
-            if (sd_wp_addr(sd, sd->data_start)) {
+            if (sd_current_partition(sd) == sd_user_partition && sd_wp_addr(sd, sd->data_start)) {
                 sd->card_status |= WP_VIOLATION;
                 break;
             }
@@ -1958,7 +2074,7 @@ void sd_write_data(SDState *sd, uint8_t value)
         if (sd->data_offset >= sd->blk_len) {
             /* TODO: Check CRC before committing */
             sd->state = sd_programming_state;
-            BLK_WRITE_BLOCK(sd->data_start, sd->data_offset);
+            BLK_WRITE_BLOCK(sd_current_partition(sd), sd->data_start, sd->data_offset);
             sd->blk_written++;
             sd->data_start += sd->blk_len;
             sd->data_offset = 0;
@@ -2068,7 +2184,7 @@ uint8_t sd_read_data(SDState *sd)
     if (!sd->blk || !blk_is_inserted(sd->blk) || !sd->enable)
         return 0x00;
 
-    if (sd->state != sd_sendingdata_state) {
+    if (sd->state != sd_sendingdata_state && sd->state != sd_boot_state) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "sd_read_data: not in Sending-Data state\n");
         return 0x00;
@@ -2083,6 +2199,22 @@ uint8_t sd_read_data(SDState *sd)
                            sd_acmd_name(sd->current_cmd),
                            sd->current_cmd, io_len);
     switch (sd->current_cmd) {
+    case 0: /* CMD0:   BOOT_INITIATION */
+        if (sd->data_offset == 0) {
+            BLK_READ_BLOCK(sd_current_boot_partition(sd), sd->data_start, 512);
+        }
+        ret = sd->data[sd->data_offset ++];
+
+        if (sd->data_offset >= 512) {
+            sd->data_start += 512;
+            sd->data_offset = 0;
+
+            if (sd->data_start + 512 > sd_partition_size(sd, sd_current_boot_partition(sd))) {
+                sd->state = sd_idle_state;
+            }
+        }
+        break;
+
     case 6:	/* CMD6:   SWITCH_FUNCTION */
         ret = sd->data[sd->data_offset ++];
 
@@ -2114,7 +2246,7 @@ uint8_t sd_read_data(SDState *sd)
 
     case 17:	/* CMD17:  READ_SINGLE_BLOCK */
         if (sd->data_offset == 0)
-            BLK_READ_BLOCK(sd->data_start, io_len);
+            BLK_READ_BLOCK(sd_current_partition(sd), sd->data_start, io_len);
         ret = sd->data[sd->data_offset ++];
 
         if (sd->data_offset >= io_len)
@@ -2123,11 +2255,11 @@ uint8_t sd_read_data(SDState *sd)
 
     case 18:	/* CMD18:  READ_MULTIPLE_BLOCK */
         if (sd->data_offset == 0) {
-            if (sd->data_start + io_len > sd->size) {
+            if (sd->data_start + io_len > sd_partition_size(sd, sd_current_partition(sd))) {
                 sd->card_status |= ADDRESS_ERROR;
                 return 0x00;
             }
-            BLK_READ_BLOCK(sd->data_start, io_len);
+            BLK_READ_BLOCK(sd_current_partition(sd), sd->data_start, io_len);
         }
         ret = sd->data[sd->data_offset ++];
 
@@ -2201,7 +2333,7 @@ uint8_t sd_read_data(SDState *sd)
 
 bool sd_data_ready(SDState *sd)
 {
-    return sd->state == sd_sendingdata_state;
+    return sd->state == sd_sendingdata_state || sd->state == sd_boot_state;
 }
 
 void sd_enable(SDState *sd, bool enable)
@@ -2267,6 +2399,7 @@ static Property sd_properties[] = {
     DEFINE_PROP_BOOL("spi", SDState, spi, false),
     DEFINE_PROP_BOOL("emmc", SDState, emmc, false),
     DEFINE_PROP_BOOL("high_capacity", SDState, high_capacity, false),
+    DEFINE_PROP_UINT32("boot_size", SDState, boot_size, 0),
     DEFINE_PROP_END_OF_LIST()
 };
 
