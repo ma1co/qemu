@@ -23,7 +23,9 @@ static uint64_t bootcon_read(void *opaque, hwaddr offset, unsigned size)
 static void bootcon_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
     BootconState *s = BIONZ_BOOTCON(opaque);
-    qemu_chr_fe_write_all(&s->chr, (void *) &value, 1);
+    if (value != 0) {
+        qemu_chr_fe_write_all(&s->chr, (void *) &value, 1);
+    }
 }
 
 static const struct MemoryRegionOps bootcon_ops = {
