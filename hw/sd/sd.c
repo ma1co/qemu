@@ -305,7 +305,7 @@ static void sd_ocr_powerup(void *opaque)
     /* card power-up OK */
     sd->ocr = FIELD_DP32(sd->ocr, OCR, CARD_POWER_UP, 1);
 
-    if (sd->size > 1 * GiB) {
+    if (sd->size > 2 * GiB) {
         sd->ocr = FIELD_DP32(sd->ocr, OCR, CARD_CAPACITY, 1);
     }
 }
@@ -377,7 +377,7 @@ static void sd_set_csd(SDState *sd, uint64_t size)
     uint32_t sectsize = (1 << (SECTOR_SHIFT + 1)) - 1;
     uint32_t wpsize = (1 << (WPGROUP_SHIFT + 1)) - 1;
 
-    if (size <= 1 * GiB) { /* Standard Capacity SD */
+    if (size <= 2 * GiB) { /* Standard Capacity SD */
         sd->csd[0] = 0x00;	/* CSD structure */
         sd->csd[1] = 0x26;	/* Data read access-time-1 */
         sd->csd[2] = 0x00;	/* Data read access-time-2 */
@@ -969,8 +969,8 @@ static sd_rsp_type_t sd_normal_command(SDState *sd, SDRequest req)
         return sd_illegal;
 
     case 6:	/* CMD6:   SWITCH_FUNCTION */
-        switch (sd->mode) {
-        case sd_data_transfer_mode:
+        switch (sd->state) {
+        case sd_transfer_state:
             sd_function_switch(sd, req.arg);
             sd->state = sd_sendingdata_state;
             sd->data_start = 0;
@@ -1688,7 +1688,9 @@ int sd_do_command(SDState *sd, SDRequest *req,
          */
         sd->current_cmd = req->cmd;
         sd->card_status &= ~CURRENT_STATE;
-        sd->card_status |= (last_state << 9);
+        if (last_state >= 0) {
+            sd->card_status |= (last_state << 9);
+        }
     }
 
 send_response:
@@ -1908,7 +1910,7 @@ void sd_write_data(SDState *sd, uint8_t value)
 
 static const uint8_t sd_tuning_block_pattern[SD_TUNING_BLOCK_SIZE] = {
     /* See: Physical Layer Simplified Specification Version 3.01, Table 4-2 */
-    0xff, 0x0f, 0xff, 0x00,         0x0f, 0xfc, 0xc3, 0xcc,
+    0xff, 0x0f, 0xff, 0x00,         0xff, 0xcc, 0xc3, 0xcc,
     0xc3, 0x3c, 0xcc, 0xff,         0xfe, 0xff, 0xfe, 0xef,
     0xff, 0xdf, 0xff, 0xdd,         0xff, 0xfb, 0xff, 0xfb,
     0xbf, 0xff, 0x7f, 0xff,         0x77, 0xf7, 0xbd, 0xef,
