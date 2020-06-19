@@ -99,6 +99,7 @@ struct SDState {
     BlockBackend *blk;
     bool spi;
     bool emmc;
+    bool high_capacity;
 
     uint32_t mode;    /* current card mode, one of SDCardModes */
     int32_t state;    /* current card state, one of SDCardStates */
@@ -313,7 +314,7 @@ static void sd_ocr_powerup(void *opaque)
     /* card power-up OK */
     sd->ocr = FIELD_DP32(sd->ocr, OCR, CARD_POWER_UP, 1);
 
-    if (sd->size > 2 * GiB) {
+    if (sd->high_capacity || sd->size > 2 * GiB) {
         sd->ocr = FIELD_DP32(sd->ocr, OCR, CARD_CAPACITY, 1);
     }
 }
@@ -2265,6 +2266,7 @@ static Property sd_properties[] = {
      * is asserted.  */
     DEFINE_PROP_BOOL("spi", SDState, spi, false),
     DEFINE_PROP_BOOL("emmc", SDState, emmc, false),
+    DEFINE_PROP_BOOL("high_capacity", SDState, high_capacity, false),
     DEFINE_PROP_END_OF_LIST()
 };
 
