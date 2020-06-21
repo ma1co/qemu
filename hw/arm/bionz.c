@@ -159,6 +159,7 @@
 #define CXD90045_DDR0_SIZE 0x40000000
 #define CXD90045_DDR1_BASE 0x80000000
 #define CXD90045_DDR1_SIZE 0x40000000
+#define CXD90045_DDRC_BASE(i) (0xf0104000 + (i) * 0x1000)
 #define CXD90045_SRAM_BASE 0xfe000000
 #define CXD90045_SRAM_SIZE 0x01000000
 #define CXD90045_BOOTCON_BASE 0xfe005030
@@ -724,6 +725,12 @@ static void cxd90045_init(MachineState *machine)
 
     cxd_add_const_reg("emmc0", CXD90045_SDHCI_BASE + 0x124, 0x1000000);
     cxd_add_const_reg("emmc1", CXD90045_SDHCI_BASE + 0x130, 0x1fff);
+
+    cxd_add_const_reg("ddrc0", CXD90045_DDRC_BASE(0) + 0x148, 0x20000000);
+    cxd_add_const_reg("ddrc1", CXD90045_DDRC_BASE(1) + 0x148, 0x20000000);
+
+    cxd_add_const_reg("unknown0", 0xf2908008, 1);
+    cxd_add_const_reg("unknown1", 0xf290c008, 1);
 
     qemu_register_reset(cxd_reset, s);
 }
