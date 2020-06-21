@@ -437,6 +437,9 @@ static void sdhci_read_block_from_card(SDHCIState *s)
         s->hostctl2 |= R_SDHC_HOSTCTL2_SAMPLING_CLKSEL_MASK;
         s->prnsts &= ~(SDHC_DAT_LINE_ACTIVE | SDHC_DOING_READ |
                        SDHC_DATA_INHIBIT);
+        if (s->norintstsen & SDHC_NISEN_RBUFRDY) {
+            s->norintsts |= SDHC_NIS_RBUFRDY;
+        }
         goto read_done;
     }
 
