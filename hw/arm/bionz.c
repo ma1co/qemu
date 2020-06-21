@@ -9,6 +9,7 @@
 #include "hw/cpu/a9mpcore.h"
 #include "hw/cpu/arm11mpcore.h"
 #include "hw/loader.h"
+#include "hw/sd/sdhci.h"
 #include "qapi/error.h"
 #include "sysemu/block-backend.h"
 #include "sysemu/sysemu.h"
@@ -161,6 +162,7 @@
 #define CXD90045_SRAM_BASE 0xfe000000
 #define CXD90045_SRAM_SIZE 0x01000000
 #define CXD90045_BOOTCON_BASE 0xfe005030
+#define CXD90045_SDHCI_BASE 0xf0304000
 #define CXD90045_UART_BASE(i) (0xf2000000 + (i) * 0x1000)
 #define CXD90045_NUM_UART 4
 #define CXD90045_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
@@ -173,6 +175,7 @@
 #define CXD90045_IRQ_OFFSET 32
 #define CXD90045_IRQ_UART(i) ((i) == 3 ? 120 : (150 + (i)))
 #define CXD90045_IRQ_HWTIMER(i) (153 + (i))
+#define CXD90045_IRQ_SDHCI 227
 
 #define CXD90045_TEXT_OFFSET 0x00108000
 #define CXD90045_INITRD_OFFSET 0x00700000
@@ -636,10 +639,14 @@ static void cxd90014_init(MachineState *machine)
 static void cxd90045_init(MachineState *machine)
 {
     CxdState *s = CXD(machine);
+    DriveInfo *dinfo;
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[CXD90045_NUM_IRQ - CXD90045_IRQ_OFFSET];
     int i;
+
+    dinfo = drive_get(IF_MTD, 0, 0);
+    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
     object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
     object_property_set_bool(OBJECT(&s->cpu), false, "has_el3", &error_fatal);
@@ -679,6 +686,19 @@ static void cxd90045_init(MachineState *machine)
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_BOOTCON_BASE);
 
+    dev = qdev_create(NULL, TYPE_SYSBUS_SDHCI);
+    qdev_prop_set_uint8(dev, "uhs", UHS_II);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_SDHCI_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90045_IRQ_SDHCI - CXD90045_IRQ_OFFSET]);
+
+    dev = qdev_create(qdev_get_child_bus(dev, "sd-bus"), TYPE_SD_CARD);
+    qdev_prop_set_bit(dev, "emmc", true);
+    qdev_prop_set_bit(dev, "high_capacity", true);
+    qdev_prop_set_uint32(dev, "boot_size", 0x40000);
+    qdev_prop_set_drive(dev, "drive", s->drive, &error_abort);
+    qdev_init_nofail(dev);
+
     for (i = 0; i < CXD90045_NUM_UART; i++) {
         pl011_create(CXD90045_UART_BASE(i), irq[CXD90045_IRQ_UART(i) - CXD90045_IRQ_OFFSET], serial_hd(i));
     }
@@ -698,6 +718,9 @@ static void cxd90045_init(MachineState *machine)
         load_image_targphys(bios_name, CXD90045_BOOTROM_BASE, CXD90045_BOOTROM_SIZE);
         s->loader_base = CXD90045_BOOTROM_BASE;
     }
+
+    cxd_add_const_reg("emmc0", CXD90045_SDHCI_BASE + 0x124, 0x1000000);
+    cxd_add_const_reg("emmc1", CXD90045_SDHCI_BASE + 0x130, 0x1fff);
 
     qemu_register_reset(cxd_reset, s);
 }
