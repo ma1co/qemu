@@ -167,6 +167,7 @@
 #define CXD90045_NUM_UART 4
 #define CXD90045_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90045_NUM_HWTIMER 4
+#define CXD90045_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
 #define CXD90045_MPCORE_BASE 0xf8000000
 #define CXD90045_BOOTROM_BASE 0xffff0000
 #define CXD90045_BOOTROM_SIZE 0x00006000
@@ -718,6 +719,8 @@ static void cxd90045_init(MachineState *machine)
         load_image_targphys(bios_name, CXD90045_BOOTROM_BASE, CXD90045_BOOTROM_SIZE);
         s->loader_base = CXD90045_BOOTROM_BASE;
     }
+
+    cxd_add_const_reg("miscctrl_mode", CXD90045_MISCCTRL_BASE(1), 0x28);
 
     cxd_add_const_reg("emmc0", CXD90045_SDHCI_BASE + 0x124, 0x1000000);
     cxd_add_const_reg("emmc1", CXD90045_SDHCI_BASE + 0x130, 0x1fff);
