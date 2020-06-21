@@ -376,7 +376,7 @@ static void sdhci_send_command(SDHCIState *s)
 
     if (s->blksize && (s->cmdreg & SDHC_CMD_DATA_PRESENT)) {
         s->data_count = 0;
-        sdhci_data_transfer(s);
+        timer_mod(s->transfer_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + SDHC_TRANSFER_DELAY);
     }
 }
 
