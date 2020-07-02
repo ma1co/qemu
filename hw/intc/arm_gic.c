@@ -759,7 +759,7 @@ static uint32_t gic_dist_readb(void *opaque, hwaddr offset, MemTxAttrs attrs)
                 res = GIC_TARGET(irq);
             }
         }
-    } else if (offset < 0xf00) {
+    } else if (offset < 0xd00) {
         /* Interrupt Configuration.  */
         irq = (offset - 0xc00) * 4 + GIC_BASE_IRQ;
         if (irq >= s->num_irq)
@@ -775,6 +775,17 @@ static uint32_t gic_dist_readb(void *opaque, hwaddr offset, MemTxAttrs attrs)
                 res |= (1 << (i * 2));
             if (GIC_TEST_EDGE_TRIGGER(irq + i))
                 res |= (2 << (i * 2));
+        }
+    } else if (offset < 0xf00) {
+        /* Interrupt Line Level. */
+        irq = (offset - 0xd00) * 8 + GIC_BASE_IRQ;
+        if (irq >= s->num_irq)
+            goto bad_reg;
+        res = 0;
+        for (i = 0; i < 8; i++) {
+            if (irq + i >= GIC_INTERNAL && GIC_TEST_LEVEL(irq + i, ALL_CPU_MASK)) {
+                res |= (1 << i);
+            }
         }
     } else if (offset < 0xf10) {
         goto bad_reg;
