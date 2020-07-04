@@ -303,7 +303,6 @@ static void cxd4108_init(MachineState *machine)
     }
 
     dev = qdev_create(NULL, "onenand");
-    qdev_prop_set_uint16(dev, "device_id", 0x20);
     qdev_prop_set_int32(dev, "shift", 1);
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);
@@ -382,7 +381,6 @@ static void cxd4115_init(MachineState *machine)
 
     dev = qdev_create(NULL, "onenand");
     qdev_prop_set_uint16(dev, "manufacturer_id", NAND_MFR_SAMSUNG);
-    qdev_prop_set_uint16(dev, "device_id", 0x30);
     qdev_prop_set_int32(dev, "shift", 1);
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);
@@ -481,7 +479,6 @@ static void cxd4132_init(MachineState *machine)
 
     dev = qdev_create(NULL, "onenand");
     qdev_prop_set_uint16(dev, "manufacturer_id", NAND_MFR_SAMSUNG);
-    qdev_prop_set_uint16(dev, "device_id", 0x40);
     qdev_prop_set_int32(dev, "shift", 1);
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);

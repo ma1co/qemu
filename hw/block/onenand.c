@@ -28,6 +28,7 @@
 #include "exec/memory.h"
 #include "hw/sysbus.h"
 #include "qemu/error-report.h"
+#include <math.h>
 
 /* 11 for 2kB-page OneNAND ("2nd generation") and 10 for 1kB-page chips */
 #define PAGE_SHIFT	11
@@ -772,9 +773,19 @@ static int onenand_initfn(SysBusDevice *sbd)
 {
     DeviceState *dev = DEVICE(sbd);
     OneNANDState *s = ONE_NAND(dev);
-    uint32_t size = 1 << (24 + ((s->id.dev >> 4) & 7));
+    uint32_t size;
     void *ram;
     Error *local_err = NULL;
+
+    if (!s->id.dev && s->blk) {
+        size = blk_getlength(s->blk);
+        s->id.dev = ((int)log2((size / 0x210) >> 15) & 7) << 4;
+        if ((1 << (15 + ((s->id.dev >> 4) & 7))) * 0x210 != size) {
+            error_report("Can't determine size from drive");
+            return -1;
+        }
+    }
+    size = 1 << (24 + ((s->id.dev >> 4) & 7));
 
     s->base = (hwaddr)-1;
     s->rdy = NULL;
