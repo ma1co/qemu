@@ -18,6 +18,10 @@
 #define TYPE_BIONZ_BOSS "bionz_boss"
 #define BIONZ_BOSS(obj) OBJECT_CHECK(BossState, (obj), TYPE_BIONZ_BOSS)
 
+#define TYPE_BIONZ_BOSS_CPU "bionz_boss_cpu"
+#define BIONZ_BOSS_CPU_CLASS(klass) OBJECT_CLASS_CHECK(BossCPUClass, (klass), TYPE_BIONZ_BOSS_CPU)
+#define BIONZ_BOSS_CPU_GET_CLASS(obj) OBJECT_GET_CLASS(BossCPUClass, (obj), TYPE_BIONZ_BOSS_CPU)
+
 typedef struct BossState {
     SysBusDevice parent_obj;
     ARMCPU cpu;
@@ -33,6 +37,11 @@ typedef struct BossState {
     uint32_t irq_int_status;
     uint32_t irq_ext_status;
 } BossState;
+
+typedef struct BossCPUClass {
+    ARMCPUClass parent_class;
+    void (*parent_reset)(CPUState *s);
+} BossCPUClass;
 
 static void boss_update_irq(BossState *s)
 {
@@ -209,7 +218,7 @@ static int boss_init(SysBusDevice *sbd)
     memory_region_init_alias(&s->system_memory_alias, OBJECT(sbd), TYPE_BIONZ_BOSS ".sysmem", get_system_memory(), 0, UINT64_MAX);
     memory_region_add_subregion(&s->container, 0, &s->system_memory_alias);
 
-    object_initialize(&s->cpu, sizeof(s->cpu), ARM_CPU_TYPE_NAME("cortex-a9"));// not sure
+    object_initialize(&s->cpu, sizeof(s->cpu), TYPE_BIONZ_BOSS_CPU);
     object_property_set_bool(OBJECT(&s->cpu), false, "has_el3", &error_fatal);
     object_property_set_int(OBJECT(&s->cpu), BOSS_CPUID, "mp-affinity", &error_fatal);
     object_property_set_bool(OBJECT(&s->cpu), true, "start-powered-off", &error_fatal);
@@ -233,6 +242,38 @@ static int boss_init(SysBusDevice *sbd)
 
     return 0;
 }
+
+static void boss_cpu_reset(CPUState *s)
+{
+    BossCPUClass *bcc = BIONZ_BOSS_CPU_GET_CLASS(s);
+
+    uint32_t ir = s->interrupt_request;
+    bcc->parent_reset(s);
+    s->interrupt_request = ir;
+}
+
+static void boss_cpu_class_init(ObjectClass *klass, void *data)
+{
+    BossCPUClass *bcc = BIONZ_BOSS_CPU_CLASS(klass);
+    CPUClass *cc = CPU_CLASS(bcc);
+
+    bcc->parent_reset = cc->reset;
+    cc->reset = boss_cpu_reset;
+}
+
+static const TypeInfo boss_cpu_info = {
+    .name          = TYPE_BIONZ_BOSS_CPU,
+    .parent        = ARM_CPU_TYPE_NAME("cortex-a9"),// not sure
+    .class_size    = sizeof(BossCPUClass),
+    .class_init    = boss_cpu_class_init,
+};
+
+static void boss_cpu_register_type(void)
+{
+    type_register_static(&boss_cpu_info);
+}
+
+type_init(boss_cpu_register_type)
 
 static void boss_class_init(ObjectClass *klass, void *data)
 {
