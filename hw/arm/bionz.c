@@ -152,6 +152,8 @@
 #define CXD90014_IRQ_BOSS 170
 #define CXD90014_IRQ_USB 227
 
+#define CXD90014_BOOT_BLOCK_OFFSET 0x00000000
+#define CXD90014_BOOTROM_BLOCK_OFFSET 0x00000600
 #define CXD90014_TEXT_OFFSET 0x00038000
 #define CXD90014_INITRD_OFFSET 0x00628000
 
@@ -184,6 +186,7 @@
 #define CXD90045_INITRD_OFFSET 0x00700000
 
 #define NAND_SECTOR_SIZE 0x200
+#define NAND_PAGE_SIZE 0x1000
 
 #define TYPE_CXD "cxd"
 #define CXD(obj) OBJECT_CHECK(CxdState, (obj), TYPE_CXD)
@@ -226,6 +229,46 @@ static hwaddr cxd_init_loader2(BlockBackend *drive)
     }
     rom_add_blob_fixed("loader2", loader_buffer, loader_size, loader_base);
     g_free(loader_buffer);
+
+    return loader_base;
+}
+
+static hwaddr cxd90014_init_loader2(BlockBackend *drive)
+{
+    char page[0x600];
+    uint32_t pages_per_block, block_offset, loader_offset, loader_n_pages, loader_base;
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        if (blk_pread(drive, i * NAND_PAGE_SIZE, page, sizeof(page)) < 0) {
+            hw_error("%s: Cannot read bootrom block\n", __func__);
+        }
+        rom_add_blob_fixed("bootrom_block", page, sizeof(page), CXD90014_SRAM_BASE + CXD90014_BOOTROM_BLOCK_OFFSET + i * sizeof(page));
+    }
+
+    pages_per_block = 1 << (*(uint32_t *) (page + 0x08));
+    block_offset = (*(uint32_t *) (page + 0x0c)) * pages_per_block * NAND_PAGE_SIZE;
+
+    if (blk_pread(drive, block_offset, page, sizeof(page)) < 0) {
+        hw_error("%s: Cannot read boot block\n", __func__);
+    }
+
+    if (*(uint32_t *) page != *(uint32_t *) "EXBL") {
+        hw_error("%s: Wrong boot block signature\n", __func__);
+    }
+
+    rom_add_blob_fixed("boot_block", page, sizeof(page), CXD90014_SRAM_BASE + CXD90014_BOOT_BLOCK_OFFSET);
+
+    loader_offset = block_offset + (*(uint32_t *) (page + 0x40)) * NAND_PAGE_SIZE;
+    loader_n_pages = (*(uint32_t *) (page + 0x44));
+    loader_base = *(uint32_t *) (page + 0x50);
+
+    for (i = 0; i < loader_n_pages; i++) {
+        if (blk_pread(drive, loader_offset + i * NAND_PAGE_SIZE, page, sizeof(page)) < 0) {
+            hw_error("%s: Cannot read loader2\n", __func__);
+        }
+        rom_add_blob_fixed("loader2", page, sizeof(page), loader_base + i * sizeof(page));
+    }
 
     return loader_base;
 }
@@ -626,6 +669,8 @@ static void cxd90014_init(MachineState *machine)
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD90014_BOOTROM_BASE, CXD90014_BOOTROM_SIZE);
         s->loader_base = CXD90014_BOOTROM_BASE;
+    } else if (s->drive) {
+        s->loader_base = cxd90014_init_loader2(s->drive);
     }
 
     cxd_add_const_reg("miscctrl_typeid", CXD90014_MISCCTRL_BASE(0), 0x500);
