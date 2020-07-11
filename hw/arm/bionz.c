@@ -70,6 +70,7 @@
 #define CXD4115_IRQ_USB0 233
 #define CXD4115_IRQ_USB1 234
 
+#define CXD4115_TYPEID_OFFSET 0x00007d24
 #define CXD4115_TEXT_OFFSET 0x00208000
 #define CXD4115_INITRD_OFFSET 0x0062e000
 
@@ -431,6 +432,8 @@ static void cxd4115_init(MachineState *machine)
         s->loader_base = CXD4115_BOOTROM_BASE;
     } else if (s->drive) {
         s->loader_base = cxd_init_loader2(s->drive);
+        uint32_t typeid = 1;
+        rom_add_blob_fixed("typeid", &typeid, sizeof(typeid), CXD4115_SRAM_BASE + CXD4115_TYPEID_OFFSET);
     }
 
     cxd_add_const_reg("gpio0_data", CXD4115_GPIO_BASE + 4, 0x48000);
