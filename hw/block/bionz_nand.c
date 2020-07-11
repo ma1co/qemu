@@ -2,13 +2,12 @@
 
 #include "qemu/osdep.h"
 #include "hw/sysbus.h"
+#include "qemu/error-report.h"
 #include "qemu/log.h"
 #include "sysemu/block-backend.h"
 
 #define NAND_PAGE_SIZE 0x1000
 #define NAND_SPARE_SIZE 8
-#define NAND_PAGES_PER_BLOCK 0x40
-#define NAND_NUM_BLOCKS 0x800
 
 #define REG_GLOBAL_INT_ENABLE        0x0f0
 #define REG_NUMBER_OF_PLANES         0x140
@@ -53,6 +52,7 @@ typedef struct NandState {
     qemu_irq intr;
 
     BlockBackend *blk;
+    uint32_t size;
 
     uint32_t ctrl;
     uint32_t offset;
@@ -211,7 +211,7 @@ static void nand_dma_command(NandState *s)
     switch ((args.data >> 8) & 0xff) {
         case 0x20:// read
             main_offset = (args.command & 0xffffff) * NAND_PAGE_SIZE;
-            spare_offset = NAND_NUM_BLOCKS * NAND_PAGES_PER_BLOCK * NAND_PAGE_SIZE + (args.command & 0xffffff) * NAND_SPARE_SIZE;
+            spare_offset = s->size + (args.command & 0xffffff) * NAND_SPARE_SIZE;
 
             switch (args.data >> 16) {
                 case 0x3140:// multiple full pages
@@ -370,7 +370,17 @@ static void nand_reset(DeviceState *dev)
 
 static int nand_init(SysBusDevice *sbd)
 {
+    uint32_t length;
     NandState *s = BIONZ_NAND(sbd);
+
+    if (!s->size && s->blk) {
+        length = blk_getlength(s->blk);
+        s->size = (length / (NAND_PAGE_SIZE + NAND_SPARE_SIZE)) * NAND_PAGE_SIZE;
+        if (s->size / NAND_PAGE_SIZE * (NAND_PAGE_SIZE + NAND_SPARE_SIZE) != length) {
+            error_report("Can't determine size from drive");
+            return -1;
+        }
+    }
 
     memory_region_init_io(&s->reg_mmio, OBJECT(sbd), &nand_reg_ops, s, TYPE_BIONZ_NAND ".reg", 0x800);
     sysbus_init_mmio(sbd, &s->reg_mmio);
@@ -385,6 +395,7 @@ static int nand_init(SysBusDevice *sbd)
 
 static Property nand_properties[] = {
     DEFINE_PROP_DRIVE("drive", NandState, blk),
+    DEFINE_PROP_UINT32("size", NandState, size, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 
