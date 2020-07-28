@@ -15,7 +15,7 @@
 #define CTL_EN(reg) ((reg) & 0x1000)
 #define CTL_IEN(reg) ((reg) & 0x100)
 #define CTL_MODE(reg) ((reg) & 0x30)
-#define CTL_PER(reg) (250 << ((reg) & 0x7))
+#define CTL_DIV(reg) ((reg) & 0x7)
 
 #define CLR_CLR(reg) ((reg) & 0x10)
 #define CLR_INTCLR(reg) ((reg) & 0x1)
@@ -32,6 +32,8 @@ typedef struct HwtimerState {
     MemoryRegion mmio;
     qemu_irq intr;
 
+    uint32_t freq;
+
     QEMUTimer *timer;
     int64_t last_tick;
     int64_t next_tick;
@@ -41,10 +43,15 @@ typedef struct HwtimerState {
     uint32_t reg_value;
 } HwtimerState;
 
+static uint32_t hwtimer_period(HwtimerState *s)
+{
+    return ((uint32_t) (1e9 / s->freq)) << CTL_DIV(s->reg_ctl);
+}
+
 static void hwtimer_reload(HwtimerState *s)
 {
     if (CTL_EN(s->reg_ctl)) {
-        s->next_tick = s->last_tick + (s->reg_cmp - s->reg_value) * CTL_PER(s->reg_ctl);
+        s->next_tick = s->last_tick + (s->reg_cmp - s->reg_value) * hwtimer_period(s);
         timer_mod(s->timer, s->next_tick);
     } else {
         s->next_tick = 0;
@@ -56,7 +63,7 @@ static void hwtimer_tick(void *opaque)
 {
     HwtimerState *s = BIONZ_HWTIMER(opaque);
 
-    s->reg_value += (s->next_tick - s->last_tick) / CTL_PER(s->reg_ctl) + 1;
+    s->reg_value += (s->next_tick - s->last_tick) / hwtimer_period(s) + 1;
     s->last_tick = s->next_tick;
 
     if (CTL_MODE(s->reg_ctl) == MODE_ONESHOT) {
@@ -96,7 +103,7 @@ static uint64_t hwtimer_read(void *opaque, hwaddr offset, unsigned size)
 
         case TIMERREAD:
             if (CTL_EN(s->reg_ctl)) {
-                return s->reg_value + (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - s->last_tick) / CTL_PER(s->reg_ctl);
+                return s->reg_value + (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - s->last_tick) / hwtimer_period(s);
             } else {
                 return s->reg_value;
             }
@@ -171,6 +178,11 @@ static int hwtimer_init(SysBusDevice *sbd)
     return 0;
 }
 
+static Property hwtimer_properties[] = {
+    DEFINE_PROP_UINT32("freq", HwtimerState, freq, 4e6),
+    DEFINE_PROP_END_OF_LIST()
+};
+
 static void hwtimer_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -178,6 +190,7 @@ static void hwtimer_class_init(ObjectClass *klass, void *data)
 
     k->init = hwtimer_init;
     dc->reset = hwtimer_reset;
+    dc->props = hwtimer_properties;
 }
 
 static const TypeInfo hwtimer_info = {

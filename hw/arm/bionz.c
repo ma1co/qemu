@@ -366,6 +366,7 @@ static void cxd4108_init(MachineState *machine)
 
     for (i = 0; i < CXD4108_NUM_HWTIMER; i++) {
         dev = qdev_create(NULL, "bionz_hwtimer");
+        qdev_prop_set_uint32(dev, "freq", 2e6);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_HWTIMER_BASE(i));
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_TIMER][i]);
