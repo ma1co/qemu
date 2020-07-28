@@ -55,9 +55,9 @@ static inline void timerblock_update_irq(TimerBlock *tb)
 }
 
 /* Return conversion factor from mpcore timer ticks to qemu timer ticks.  */
-static inline uint32_t timerblock_scale(uint32_t control)
+static inline uint32_t timerblock_scale(TimerBlock *tb, uint32_t control)
 {
-    return (((control >> 8) & 0xff) + 1) * 10;
+    return (((control >> 8) & 0xff) + 1) * 2e9 / tb->freq;
 }
 
 static inline void timerblock_set_count(struct ptimer_state *timer,
@@ -144,7 +144,7 @@ static void timerblock_write(void *opaque, hwaddr addr,
             ptimer_stop(tb->timer);
         }
         if ((control & 0xff00) != (value & 0xff00)) {
-            ptimer_set_period(tb->timer, timerblock_scale(value));
+            ptimer_set_period(tb->timer, timerblock_scale(tb, value));
         }
         if (value & 1) {
             uint64_t count = ptimer_get_count(tb->timer);
@@ -209,7 +209,7 @@ static void timerblock_reset(TimerBlock *tb)
     if (tb->timer) {
         ptimer_stop(tb->timer);
         ptimer_set_limit(tb->timer, 0, 1);
-        ptimer_set_period(tb->timer, timerblock_scale(0));
+        ptimer_set_period(tb->timer, timerblock_scale(tb, 0));
     }
 }
 
@@ -256,6 +256,7 @@ static void arm_mptimer_realize(DeviceState *dev, Error **errp)
     for (i = 0; i < s->num_cpu; i++) {
         TimerBlock *tb = &s->timerblock[i];
         QEMUBH *bh = qemu_bh_new(timerblock_tick, tb);
+        tb->freq = s->freq;
         tb->timer = ptimer_init(bh, PTIMER_POLICY);
         sysbus_init_irq(sbd, &tb->irq);
         memory_region_init_io(&tb->iomem, OBJECT(s), &timerblock_ops, tb,
@@ -289,6 +290,7 @@ static const VMStateDescription vmstate_arm_mptimer = {
 
 static Property arm_mptimer_properties[] = {
     DEFINE_PROP_UINT32("num-cpu", ARMMPTimerState, num_cpu, 0),
+    DEFINE_PROP_UINT32("freq", ARMMPTimerState, freq, 2e8),
     DEFINE_PROP_END_OF_LIST()
 };
 

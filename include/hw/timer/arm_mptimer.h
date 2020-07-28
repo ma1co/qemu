@@ -29,6 +29,7 @@
 typedef struct {
     uint32_t control;
     uint32_t status;
+    uint32_t freq;
     struct ptimer_state *timer;
     qemu_irq irq;
     MemoryRegion iomem;
@@ -44,6 +45,7 @@ typedef struct {
     /*< public >*/
 
     uint32_t num_cpu;
+    uint32_t freq;
     TimerBlock timerblock[ARM_MPTIMER_MAX_CPUS];
     MemoryRegion iomem;
 } ARMMPTimerState;
