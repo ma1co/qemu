@@ -5,6 +5,7 @@
 #include "hw/sysbus.h"
 #include "qapi/error.h"
 #include "qemu/log.h"
+#include "sysemu/cpus.h"
 #include "target/arm/arm-powerctl.h"
 #include "target/arm/cpu.h"
 
@@ -74,6 +75,9 @@ static void boss_io_write(void *opaque, hwaddr offset, uint64_t value, unsigned 
         case 0x00:
             s->irq_ext_status = value & 1;
             boss_update_irq(s);
+            if ((value & 1) && current_cpu == CPU(&s->cpu)) {
+                cpu_stop_current();
+            }
             break;
 
         case 0x04:
@@ -83,6 +87,9 @@ static void boss_io_write(void *opaque, hwaddr offset, uint64_t value, unsigned 
                 s->irq_int_status &= ~BOSS_IRQ_MAIN2BOSS;
             }
             boss_update_irq(s);
+            if (value & 1) {
+                cpu_resume(CPU(&s->cpu));
+            }
             break;
 
         default:
