@@ -26,6 +26,7 @@
 #define CXD4108_NUM_HWTIMER 4
 #define CXD4108_INTC_BASE 0x76500000
 #define CXD4108_GPIOSYS_BASE 0x76790000
+#define CXD4108_MISCCTRL_BASE 0x767b0000
 #define CXD4108_BOOTROM_BASE 0xffff0000
 #define CXD4108_BOOTROM_SIZE 0x00002000
 #define CXD4108_SRAM_BASE 0xffff2000
@@ -382,6 +383,8 @@ static void cxd4108_init(MachineState *machine)
     } else if (s->drive) {
         s->loader_base = cxd_init_loader2(s->drive);
     }
+
+    cxd_add_const_reg("miscctrl_mode", CXD4108_MISCCTRL_BASE, 0x101);
 
     qemu_register_reset(cxd_reset, s);
 }
