@@ -307,6 +307,10 @@ static void sdhci_reset(SDHCIState *s)
     s->data_count = 0;
     s->stopped_state = sdhc_not_stopped;
     s->pending_insert_state = false;
+
+    /* Minimal initialization for guests which expect a configured controller */
+    s->clkcon |= SDHC_CLOCK_INT_EN | SDHC_CLOCK_INT_STABLE;
+    s->hostctl1 |= SDHC_CTRL_8BITBUS;
 }
 
 static void sdhci_poweron_reset(DeviceState *dev)
