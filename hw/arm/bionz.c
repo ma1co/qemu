@@ -27,6 +27,7 @@
 #define CXD4108_INTC_BASE 0x76500000
 #define CXD4108_GPIOSYS_BASE 0x76790000
 #define CXD4108_MISCCTRL_BASE 0x767b0000
+#define CXD4108_SDC_BASE 0x78200000
 #define CXD4108_BOOTROM_BASE 0xffff0000
 #define CXD4108_BOOTROM_SIZE 0x00002000
 #define CXD4108_SRAM_BASE 0xffff2000
@@ -385,6 +386,8 @@ static void cxd4108_init(MachineState *machine)
     }
 
     cxd_add_const_reg("miscctrl_mode", CXD4108_MISCCTRL_BASE, 0x101);
+
+    cxd_add_const_reg("sdc_para4", CXD4108_SDC_BASE + 0xc, 0x80000000);
 
     qemu_register_reset(cxd_reset, s);
 }
