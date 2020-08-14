@@ -275,6 +275,34 @@ static hwaddr cxd90014_init_loader2(BlockBackend *drive)
     return loader_base;
 }
 
+static hwaddr cxd90045_init_loader2(BlockBackend *drive)
+{
+    char boot_block[0x800];
+    uint32_t boot_base, boot_size, loader_base;
+    void *boot_buffer;
+
+    if (blk_pread(drive, 0, boot_block, sizeof(boot_block)) < 0) {
+        hw_error("%s: Cannot read boot block\n", __func__);
+    }
+
+    if (*(uint32_t *) boot_block != *(uint32_t *) "EXBL") {
+        hw_error("%s: Wrong boot block signature\n", __func__);
+    }
+
+    boot_base = (*(uint32_t *) (boot_block + 0x6c));
+    boot_size = (*(uint32_t *) (boot_block + 0x7c));
+    loader_base = *(uint32_t *) (boot_block + 0x78);
+
+    boot_buffer = g_malloc(boot_size);
+    if (blk_pread(drive, 0, boot_buffer, boot_size) < 0) {
+        hw_error("%s: Cannot read boot partition\n", __func__);
+    }
+    rom_add_blob_fixed("boot", boot_buffer, boot_size, boot_base);
+    g_free(boot_buffer);
+
+    return loader_base;
+}
+
 static void cxd_init_cmdline(const char *default_cmdline, const char *cmdline, hwaddr base)
 {
     const char *header = "kemco ";
@@ -773,6 +801,8 @@ static void cxd90045_init(MachineState *machine)
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD90045_BOOTROM_BASE, CXD90045_BOOTROM_SIZE);
         s->loader_base = CXD90045_BOOTROM_BASE;
+    } else if (s->drive) {
+        s->loader_base = cxd90045_init_loader2(s->drive);
     }
 
     cxd_add_const_reg("miscctrl_mode", CXD90045_MISCCTRL_BASE(1), 0x28);
