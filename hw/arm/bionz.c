@@ -25,6 +25,9 @@
 #define CXD4108_HWTIMER_BASE(i) (0x76000000 + (i) * 0x10000)
 #define CXD4108_NUM_HWTIMER 4
 #define CXD4108_INTC_BASE 0x76500000
+#define CXD4108_GPIO_BASE(i) (0x76710000 + (i) * 0x10000)
+#define CXD4108_NUM_GPIO 6
+#define CXD4108_GPIOEASY_BASE 0x76780000
 #define CXD4108_GPIOSYS_BASE 0x76790000
 #define CXD4108_MISCCTRL_BASE 0x767b0000
 #define CXD4108_SDC_BASE 0x78200000
@@ -55,7 +58,8 @@
 #define CXD4115_NUM_HWTIMER 3
 #define CXD4115_UART_BASE(i) (0x7a050000 + (i) * 0x1000)
 #define CXD4115_NUM_UART 3
-#define CXD4115_GPIO_BASE 0x7a400000
+#define CXD4115_GPIO_BASE(i) (0x7a400000 + (i) * 0x100)
+#define CXD4115_NUM_GPIO 8
 #define CXD4115_BOOTCON_BASE 0x7f000000
 #define CXD4115_SRAM_BASE 0xfff00000
 #define CXD4115_SRAM_SIZE 0x00008000
@@ -65,12 +69,14 @@
 
 #define CXD4115_NUM_IRQ 256
 #define CXD4115_IRQ_OFFSET 32
-#define CXD4115_IRQ_NAND 54
+#define CXD4115_IRQ_GPIO_RISE(i) (32 + (i))
+#define CXD4115_IRQ_GPIO_FALL(i) (112 + (i))
 #define CXD4115_IRQ_UART(i) (152 + (i))
 #define CXD4115_IRQ_HWTIMER(i) (155 + (i))
 #define CXD4115_IRQ_DMA(i) (168 + (i))
 #define CXD4115_IRQ_USB0 233
 #define CXD4115_IRQ_USB1 234
+#define CXD4115_IRQ_GPIO_NAND 18
 
 #define CXD4115_TYPEID_OFFSET 0x00007d24
 #define CXD4115_TEXT_OFFSET 0x00208000
@@ -91,6 +97,8 @@
 #define CXD4132_NUM_HWTIMER 5
 #define CXD4132_UART_BASE(i) (0xf2038000 + (i) * 0x1000)
 #define CXD4132_NUM_UART 3
+#define CXD4132_GPIO_BASE(i) (0xf3000000 + (i) * 0x100)
+#define CXD4132_NUM_GPIO 16
 #define CXD4132_MISCCTRL_BASE(i) (0xf3060000 + (i) * 0x10)
 #define CXD4132_MPCORE_BASE 0xf8000000
 #define CXD4132_BOOTROM_BASE 0xffff0000
@@ -141,6 +149,8 @@
 #define CXD90014_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90014_NUM_HWTIMER 4
 #define CXD90014_BOSS_CLKRST_BASE 0xf29000d0
+#define CXD90014_GPIO_BASE(i) (0xf2910000 + (i) * 0x100)
+#define CXD90014_NUM_GPIO 18
 #define CXD90014_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
 #define CXD90014_USB_OTG_BASE 0xf2920000
 #define CXD90014_MPCORE_BASE 0xf8000000
@@ -173,6 +183,8 @@
 #define CXD90045_NUM_UART 4
 #define CXD90045_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90045_NUM_HWTIMER 4
+#define CXD90045_GPIO_BASE(i) (0xf2910000 + (i) * 0x100)
+#define CXD90045_NUM_GPIO 18
 #define CXD90045_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
 #define CXD90045_MPCORE_BASE 0xf8000000
 #define CXD90045_BOOTROM_BASE 0xffff0000
@@ -368,6 +380,20 @@ static void cxd4108_init(MachineState *machine)
         }
     }
 
+    for (i = 0; i < CXD4108_NUM_GPIO; i++) {
+        dev = qdev_create(NULL, "bionz_gpio");
+        qdev_prop_set_uint8(dev, "version", 1);
+        qdev_prop_set_uint8(dev, "num-gpio", 16);
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_GPIO_BASE(i));
+    }
+
+    dev = qdev_create(NULL, "bionz_gpio");
+    qdev_prop_set_uint8(dev, "version", 1);
+    qdev_prop_set_uint8(dev, "num-gpio", 16);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_GPIOEASY_BASE);
+
     dev = qdev_create(NULL, "bionz_gpiosys");
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_GPIOSYS_BASE);
@@ -427,7 +453,8 @@ static void cxd4115_init(MachineState *machine)
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[CXD4115_NUM_IRQ - CXD4115_IRQ_OFFSET];
-    int i;
+    qemu_irq gpio0_in[32];
+    int i, j;
 
     dinfo = drive_get(IF_MTD, 0, 0);
     s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
@@ -460,13 +487,29 @@ static void cxd4115_init(MachineState *machine)
         irq[i] = qdev_get_gpio_in(dev, i);
     }
 
+    for (i = 0; i < CXD4115_NUM_GPIO; i++) {
+        dev = qdev_create(NULL, "bionz_gpio");
+        qdev_prop_set_uint8(dev, "version", 1);
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_GPIO_BASE(i));
+        if (i == 0) {
+            for (j = 0; j < 32; j++) {
+                gpio0_in[j] = qdev_get_gpio_in(dev, j);
+            }
+            sysbus_connect_irq(SYS_BUS_DEVICE(dev), 18, qemu_irq_split(
+                irq[CXD4115_IRQ_GPIO_RISE(22) - CXD4115_IRQ_OFFSET],
+                qemu_irq_invert(irq[CXD4115_IRQ_GPIO_FALL(22) - CXD4115_IRQ_OFFSET])
+            ));
+        }
+    }
+
     dev = qdev_create(NULL, "onenand");
     qdev_prop_set_uint16(dev, "manufacturer_id", NAND_MFR_SAMSUNG);
     qdev_prop_set_int32(dev, "shift", 1);
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_NAND_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4115_IRQ_NAND - CXD4115_IRQ_OFFSET]);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio0_in[CXD4115_IRQ_GPIO_NAND]);
 
     dev = qdev_create(NULL, "bionz_dma");
     qdev_prop_set_uint32(dev, "version", 1);
@@ -516,7 +559,6 @@ static void cxd4115_init(MachineState *machine)
         rom_add_blob_fixed("typeid", &typeid, sizeof(typeid), CXD4115_SRAM_BASE + CXD4115_TYPEID_OFFSET);
     }
 
-    cxd_add_const_reg("gpio0_data", CXD4115_GPIO_BASE + 4, 0x48000);
     cxd_add_const_reg("ona_reset", CXD4115_ONA_BASE, 1);
 
     qemu_register_reset(cxd_reset, s);
@@ -558,6 +600,13 @@ static void cxd4132_init(MachineState *machine)
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
     for (i = 0; i < CXD4132_NUM_IRQ - CXD4132_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
+    }
+
+    for (i = 0; i < CXD4132_NUM_GPIO; i++) {
+        dev = qdev_create(NULL, "bionz_gpio");
+        qdev_prop_set_uint8(dev, "version", 2);
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_GPIO_BASE(i));
     }
 
     dev = qdev_create(NULL, "onenand");
@@ -670,6 +719,13 @@ static void cxd90014_init(MachineState *machine)
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90014_IRQ_BOSS - CXD90014_IRQ_OFFSET]);
     boss_irq = qdev_get_gpio_in(dev, 0);
 
+    for (i = 0; i < CXD90014_NUM_GPIO; i++) {
+        dev = qdev_create(NULL, "bionz_gpio");
+        qdev_prop_set_uint8(dev, "version", 3);
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_GPIO_BASE(i));
+    }
+
     dev = qdev_create(NULL, "bionz_nand");
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);
@@ -763,6 +819,13 @@ static void cxd90045_init(MachineState *machine)
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
     for (i = 0; i < CXD90045_NUM_IRQ - CXD90045_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
+    }
+
+    for (i = 0; i < CXD90045_NUM_GPIO; i++) {
+        dev = qdev_create(NULL, "bionz_gpio");
+        qdev_prop_set_uint8(dev, "version", 3);
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_GPIO_BASE(i));
     }
 
     dev = qdev_create(NULL, "bionz_bootcon");
