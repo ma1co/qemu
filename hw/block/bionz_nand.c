@@ -214,26 +214,15 @@ static void nand_dma_command(NandState *s)
             spare_offset = s->size + (args.command & 0xffffff) * NAND_SPARE_SIZE;
 
             switch (args.data >> 16) {
-                case 0x3140:// multiple full pages
+                case 0x3140:// 0x1000 byte pages
                     main_len = (args.data & 0xff) * NAND_PAGE_SIZE;
                     spare_len = (args.data & 0xff) * NAND_SPARE_SIZE;
                     break;
 
-                case 0x5140:// single half page
-                    main_len = NAND_PAGE_SIZE / 2;
+                case 0x5140:// 0x200 byte sectors
+                    main_offset += NAND_PAGE_SIZE / 8 * ((args.data >> 4) & 7);
+                    main_len = NAND_PAGE_SIZE / 8 * (args.data & 7);
                     spare_len = NAND_SPARE_SIZE;
-
-                    switch (args.data & 0xff) {
-                        case 0x04:// lower
-                            break;
-
-                        case 0x44:// upper
-                            main_offset += NAND_PAGE_SIZE / 2;
-                            break;
-
-                        default:
-                            hw_error("%s: Invalid half page selection: 0x%x\n", __func__, args.data & 0xff);
-                    }
                     break;
 
                 default:
