@@ -153,6 +153,9 @@ static int fujitsu_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char 
     }
 
     count = header->length;
+    if (count == 0) {
+        return 0;
+    }
 
     if (!(s->reg_epctrl[ep] & F_USB20HDC_REGISTER_EPCTRL_EN)) {
         return USB_RET_NAK;
