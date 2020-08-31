@@ -9,6 +9,8 @@
 #define NAND_PAGE_SIZE 0x1000
 #define NAND_SPARE_SIZE 8
 
+#define COMMAND_IRQ_DELAY 100000
+
 #define REG_GLOBAL_INT_ENABLE        0x0f0
 #define REG_NUMBER_OF_PLANES         0x140
 #define REG_PAGES_PER_BLOCK          0x150
@@ -50,6 +52,7 @@ typedef struct NandState {
     MemoryRegion reg_mmio;
     MemoryRegion data_mmio;
     qemu_irq intr;
+    QEMUTimer *update_irq_timer;
 
     BlockBackend *blk;
     uint32_t size;
@@ -76,6 +79,11 @@ typedef struct NandState {
 static void nand_update_irq(NandState *s)
 {
     qemu_set_irq(s->intr, (s->reg_global_int_enable & 1) && ((s->reg_intr_en0 & s->reg_intr_status0) || (s->reg_dma_intr_en & s->reg_dma_intr)));
+}
+
+static void nand_update_irq_delayed(void *opaque)
+{
+    nand_update_irq(BIONZ_NAND(opaque));
 }
 
 static uint64_t nand_reg_read(void *opaque, hwaddr offset, unsigned size)
@@ -307,14 +315,13 @@ static void nand_data_write(void *opaque, hwaddr offset, uint64_t value, unsigne
                     case 0b10:// MAP10
                         if (value == 1) {// erase
                             s->reg_intr_status0 |= INTR_ERASE_COMP;
-                            nand_update_irq(s);
-                            return;
                         } else if ((value >> 8) == 0x20) {// pipeline read-ahead
                             s->reg_intr_status0 |= INTR_LOAD_COMP;
-                            nand_update_irq(s);
-                            return;
+                        } else {
+                            break;
                         }
-                        break;
+                        timer_mod(s->update_irq_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + COMMAND_IRQ_DELAY);
+                        return;
                 }
             }
             break;
@@ -355,6 +362,8 @@ static void nand_reset(DeviceState *dev)
         s->dma_args[i] = 0;
     }
     s->dma_arg_count = 0;
+
+    timer_del(s->update_irq_timer);
 }
 
 static int nand_init(SysBusDevice *sbd)
@@ -378,6 +387,8 @@ static int nand_init(SysBusDevice *sbd)
     sysbus_init_mmio(sbd, &s->data_mmio);
 
     sysbus_init_irq(sbd, &s->intr);
+
+    s->update_irq_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nand_update_irq_delayed, s);
 
     return 0;
 }
