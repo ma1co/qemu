@@ -39,6 +39,8 @@
 
 #define F_USB20HDC_REGISTER_EPCMD_START (1 << 0)
 #define F_USB20HDC_REGISTER_EPCMD_STOP (1 << 1)
+#define F_USB20HDC_REGISTER_EPCMD_BUFWR (1 << 3)
+#define F_USB20HDC_REGISTER_EPCMD_BUFRD (1 << 4)
 #define F_USB20HDC_REGISTER_EPCMD_STALL_SET (1 << 5)
 #define F_USB20HDC_REGISTER_EPCMD_STALL_CLEAR (1 << 6)
 #define F_USB20HDC_REGISTER_EPCMD_NACKRESP (1 << 10)
@@ -99,6 +101,8 @@ typedef struct FujitsuUsbState {
     uint32_t reg_epconf[F_USB20HDC_NUM_EP];
     uint32_t reg_epcount0[F_USB20HDC_NUM_EP];
     uint32_t reg_epcount1[F_USB20HDC_NUM_EP];
+    bool reg_epbufwr[F_USB20HDC_NUM_EP];
+    bool reg_epbufrd[F_USB20HDC_NUM_EP];
 
     uint32_t reg_dmac[F_USB20HDC_NUM_DMA];
     uint32_t reg_dmatci[F_USB20HDC_NUM_DMA];
@@ -153,9 +157,6 @@ static int fujitsu_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char 
     }
 
     count = header->length;
-    if (count == 0) {
-        return 0;
-    }
 
     if (!(s->reg_epctrl[ep] & F_USB20HDC_REGISTER_EPCTRL_EN)) {
         return USB_RET_NAK;
@@ -172,25 +173,32 @@ static int fujitsu_usb_tcp_callback(void *arg, const TcpUsbHeader *header, char 
         if (header->flags & tcp_usb_setup) {
             memcpy(ram + ep_base + ep_size, buffer, count);
             s->reg_epcount1[ep] = (count & F_USB20HDC_REGISTER_EPCOUNT_PHYCNT_MASK) << F_USB20HDC_REGISTER_EPCOUNT_PHYCNT_SHIFT;
+            s->reg_epbufwr[ep] = false;
+            s->reg_epbufrd[ep] = false;
             s->reg_devs |= F_USB20HDC_REGISTER_DEV_INT_SETUP;
         } else {
             if (header->ep & USB_DIR_IN) {
-                appcnt = (s->reg_epcount0[ep] >> F_USB20HDC_REGISTER_EPCOUNT_APPCNT_SHIFT) & F_USB20HDC_REGISTER_EPCOUNT_APPCNT_MASK;
+                if (!s->reg_epbufwr[ep]) {
+                    return USB_RET_NAK;
+                }
 
-                if (count > appcnt) {
-                    count = appcnt;
+                appcnt = (s->reg_epcount0[ep] >> F_USB20HDC_REGISTER_EPCOUNT_APPCNT_SHIFT) & F_USB20HDC_REGISTER_EPCOUNT_APPCNT_MASK;
+                if (count != appcnt) {
+                    hw_error("%s: wrong IN count\n", __func__);
                 }
 
                 memcpy(buffer, ram + ep_base, count);
-                s->reg_epcount0[ep] = ((appcnt - count) & F_USB20HDC_REGISTER_EPCOUNT_APPCNT_MASK) << F_USB20HDC_REGISTER_EPCOUNT_APPCNT_SHIFT;
-
-                if (count == appcnt) {
-                    s->reg_epctrl[ep] |= F_USB20HDC_REGISTER_EPCTRL_READYO_EMPTY_INT;
-                }
+                s->reg_epbufwr[ep] = false;
+                s->reg_epctrl[ep] |= F_USB20HDC_REGISTER_EPCTRL_READYO_EMPTY_INT;
             } else {
-                if (count != 0) {
-                    hw_error("%s: ep0 out transfer not supported\n", __func__);
+                if (!s->reg_epbufrd[ep]) {
+                    return USB_RET_NAK;
                 }
+
+                memcpy(ram + ep_base + ep_size, buffer, count);
+                s->reg_epcount1[ep] = (count & F_USB20HDC_REGISTER_EPCOUNT_PHYCNT_MASK) << F_USB20HDC_REGISTER_EPCOUNT_PHYCNT_SHIFT;
+                s->reg_epbufrd[ep] = false;
+                s->reg_epctrl[ep] |= F_USB20HDC_REGISTER_EPCTRL_READYI_READY_INT;
             }
         }
 
@@ -319,6 +327,13 @@ static void fujitsu_usb_write(void *arg, hwaddr offset, uint64_t value, unsigned
             }
             if (value & F_USB20HDC_REGISTER_EPCMD_STOP) {
                 s->reg_epctrl[ep] &= ~F_USB20HDC_REGISTER_EPCTRL_EN;
+            }
+
+            if (value & F_USB20HDC_REGISTER_EPCMD_BUFWR) {
+                s->reg_epbufwr[ep] = true;
+            }
+            if (value & F_USB20HDC_REGISTER_EPCMD_BUFRD) {
+                s->reg_epbufrd[ep] = true;
             }
 
             if (value & F_USB20HDC_REGISTER_EPCMD_STALL_SET) {
@@ -470,6 +485,8 @@ static void fujitsu_usb_reset(DeviceState *dev)
         s->reg_epconf[i] = 0;
         s->reg_epcount0[i] = 0;
         s->reg_epcount1[i] = 0;
+        s->reg_epbufwr[i] = false;
+        s->reg_epbufrd[i] = false;
     }
 
     for (i = 0; i < F_USB20HDC_NUM_DMA; i++) {
