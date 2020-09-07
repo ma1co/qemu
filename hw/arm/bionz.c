@@ -24,6 +24,8 @@
 #define CXD4108_NUM_UART 3
 #define CXD4108_HWTIMER_BASE(i) (0x76000000 + (i) * 0x10000)
 #define CXD4108_NUM_HWTIMER 4
+#define CXD4108_SIO_BASE(i) (0x76100000 + (i) * 0x100000)
+#define CXD4108_NUM_SIO 4
 #define CXD4108_INTC_BASE 0x76500000
 #define CXD4108_GPIO_BASE(i) (0x76710000 + (i) * 0x10000)
 #define CXD4108_NUM_GPIO 6
@@ -39,6 +41,7 @@
 #define CXD4108_IRQ_CH_UART 0
 #define CXD4108_IRQ_CH_TIMER 2
 #define CXD4108_IRQ_CH_DMA 3
+#define CXD4108_IRQ_CH_SIO 7
 #define CXD4108_IRQ_CH_GPIO 19
 #define CXD4108_IRQ_GPIO_NAND 15
 
@@ -56,6 +59,8 @@
 #define CXD4115_ONA_BASE 0x78098000
 #define CXD4115_HWTIMER_BASE(i) (0x7a000000 + (i) * 0x20)
 #define CXD4115_NUM_HWTIMER 3
+#define CXD4115_SIO_BASE(i) (0x7a008000 + (i) * 0x200)
+#define CXD4115_NUM_SIO 5
 #define CXD4115_UART_BASE(i) (0x7a050000 + (i) * 0x1000)
 #define CXD4115_NUM_UART 3
 #define CXD4115_GPIO_BASE(i) (0x7a400000 + (i) * 0x100)
@@ -74,6 +79,7 @@
 #define CXD4115_IRQ_UART(i) (152 + (i))
 #define CXD4115_IRQ_HWTIMER(i) (155 + (i))
 #define CXD4115_IRQ_DMA(i) (168 + (i))
+#define CXD4115_IRQ_SIO(i) (188 + (i))
 #define CXD4115_IRQ_USB0 233
 #define CXD4115_IRQ_USB1 234
 #define CXD4115_IRQ_GPIO_NAND 22
@@ -95,6 +101,8 @@
 #define CXD4132_MENO_BASE 0xf2002000
 #define CXD4132_HWTIMER_BASE(i) (0xf2008000 + (i) * 0x20)
 #define CXD4132_NUM_HWTIMER 5
+#define CXD4132_SIO_BASE(i) (0xf2010000 + (i) * 0x200)
+#define CXD4132_NUM_SIO 5
 #define CXD4132_UART_BASE(i) (0xf2038000 + (i) * 0x1000)
 #define CXD4132_NUM_UART 3
 #define CXD4132_GPIO_BASE(i) (0xf3000000 + (i) * 0x100)
@@ -111,6 +119,7 @@
 #define CXD4132_IRQ_DMA(i) (176 + (i))
 #define CXD4132_IRQ_MENO 180
 #define CXD4132_IRQ_NAND 183
+#define CXD4132_IRQ_SIO(i) (196 + (i))
 #define CXD4132_IRQ_USB 222
 
 #define CXD4132_CMDLINE_OFFSET 0x00013000
@@ -148,6 +157,8 @@
 #define CXD90014_NUM_UART 3
 #define CXD90014_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90014_NUM_HWTIMER 4
+#define CXD90014_SIO_BASE(i) (0xf2405000 + (i) * 0x200)
+#define CXD90014_NUM_SIO 5
 #define CXD90014_BOSS_CLKRST_BASE 0xf29000d0
 #define CXD90014_GPIO_BASE(i) (0xf2910000 + (i) * 0x100)
 #define CXD90014_NUM_GPIO 18
@@ -162,6 +173,7 @@
 #define CXD90014_IRQ_UART(i) (150 + (i))
 #define CXD90014_IRQ_HWTIMER(i) (153 + (i))
 #define CXD90014_IRQ_BOSS 170
+#define CXD90014_IRQ_SIO(i) (201 + (i))
 #define CXD90014_IRQ_USB 227
 
 #define CXD90014_BOOT_BLOCK_OFFSET 0x00000000
@@ -183,6 +195,8 @@
 #define CXD90045_NUM_UART 4
 #define CXD90045_HWTIMER_BASE(i) (0xf2403000 + (i) * 0x100)
 #define CXD90045_NUM_HWTIMER 4
+#define CXD90045_SIO_BASE(i) (0xf2405000 + (i) * 0x200)
+#define CXD90045_NUM_SIO 5
 #define CXD90045_GPIO_BASE(i) (0xf2910000 + (i) * 0x100)
 #define CXD90045_NUM_GPIO 18
 #define CXD90045_MISCCTRL_BASE(i) (0xf2915000 + (i) * 0x10)
@@ -194,6 +208,7 @@
 #define CXD90045_IRQ_OFFSET 32
 #define CXD90045_IRQ_UART(i) ((i) == 3 ? 120 : (150 + (i)))
 #define CXD90045_IRQ_HWTIMER(i) (153 + (i))
+#define CXD90045_IRQ_SIO(i) (201 + (i))
 #define CXD90045_IRQ_SDHCI 227
 
 #define CXD90045_TEXT_OFFSET 0x00108000
@@ -428,6 +443,14 @@ static void cxd4108_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_TIMER][i]);
     }
 
+    for (i = 0; i < CXD4108_NUM_SIO; i++) {
+        dev = qdev_create(NULL, "bionz_sio");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_SIO_BASE(i));
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_SIO_BASE(i) + 0x80000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_SIO][i]);
+    }
+
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD4108_DDR_BASE + CXD4108_TEXT_OFFSET, CXD4108_DDR_SIZE - CXD4108_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD4108_DDR_BASE + CXD4108_INITRD_OFFSET, CXD4108_DDR_SIZE - CXD4108_INITRD_OFFSET);
@@ -536,6 +559,14 @@ static void cxd4115_init(MachineState *machine)
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_HWTIMER_BASE(i));
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4115_IRQ_HWTIMER(i) - CXD4115_IRQ_OFFSET]);
+    }
+
+    for (i = 0; i < CXD4115_NUM_SIO; i++) {
+        dev = qdev_create(NULL, "bionz_sio");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_SIO_BASE(i));
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4115_SIO_BASE(i) + 0x100);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4115_IRQ_SIO(i) - CXD4115_IRQ_OFFSET]);
     }
 
     for (i = 0; i < CXD4115_NUM_UART; i++) {
@@ -650,6 +681,14 @@ static void cxd4132_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_HWTIMER(i) - CXD4132_IRQ_OFFSET]);
     }
 
+    for (i = 0; i < CXD4132_NUM_SIO; i++) {
+        dev = qdev_create(NULL, "bionz_sio");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_SIO_BASE(i));
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4132_SIO_BASE(i) + 0x100);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_SIO(i) - CXD4132_IRQ_OFFSET]);
+    }
+
     for (i = 0; i < CXD4132_NUM_UART; i++) {
         pl011_create(CXD4132_UART_BASE(i), irq[CXD4132_IRQ_UART(i) - CXD4132_IRQ_OFFSET], serial_hd(i));
     }
@@ -756,6 +795,14 @@ static void cxd90014_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90014_IRQ_HWTIMER(i) - CXD90014_IRQ_OFFSET]);
     }
 
+    for (i = 0; i < CXD90014_NUM_SIO; i++) {
+        dev = qdev_create(NULL, "bionz_sio");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_SIO_BASE(i));
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90014_SIO_BASE(i) + 0x100);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90014_IRQ_SIO(i) - CXD90014_IRQ_OFFSET]);
+    }
+
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET, CXD90014_DDR_SIZE - CXD90014_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD90014_DDR_BASE + CXD90014_INITRD_OFFSET, CXD90014_DDR_SIZE - CXD90014_INITRD_OFFSET);
@@ -856,6 +903,14 @@ static void cxd90045_init(MachineState *machine)
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_HWTIMER_BASE(i));
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90045_IRQ_HWTIMER(i) - CXD90045_IRQ_OFFSET]);
+    }
+
+    for (i = 0; i < CXD90045_NUM_SIO; i++) {
+        dev = qdev_create(NULL, "bionz_sio");
+        qdev_init_nofail(dev);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_SIO_BASE(i));
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90045_SIO_BASE(i) + 0x100);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD90045_IRQ_SIO(i) - CXD90045_IRQ_OFFSET]);
     }
 
     if (machine->kernel_filename) {
