@@ -76,7 +76,7 @@
 #define CXD4115_IRQ_DMA(i) (168 + (i))
 #define CXD4115_IRQ_USB0 233
 #define CXD4115_IRQ_USB1 234
-#define CXD4115_IRQ_GPIO_NAND 18
+#define CXD4115_IRQ_GPIO_NAND 22
 
 #define CXD4115_TYPEID_OFFSET 0x00007d24
 #define CXD4115_TEXT_OFFSET 0x00208000
@@ -453,8 +453,8 @@ static void cxd4115_init(MachineState *machine)
     MemoryRegion *mem;
     DeviceState *dev;
     qemu_irq irq[CXD4115_NUM_IRQ - CXD4115_IRQ_OFFSET];
-    qemu_irq gpio0_in[32];
-    int i, j;
+    qemu_irq gpio_irq[24];
+    int i, j, k;
 
     dinfo = drive_get(IF_MTD, 0, 0);
     s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
@@ -493,13 +493,14 @@ static void cxd4115_init(MachineState *machine)
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_GPIO_BASE(i));
         if (i == 0) {
-            for (j = 0; j < 32; j++) {
-                gpio0_in[j] = qdev_get_gpio_in(dev, j);
+            for (j = 0; j < 20; j++) {
+                k = (j < 16) ? j : j + 4;
+                gpio_irq[k] = qdev_get_gpio_in(dev, j);
+                sysbus_connect_irq(SYS_BUS_DEVICE(dev), j, qemu_irq_split(
+                    irq[CXD4115_IRQ_GPIO_RISE(k) - CXD4115_IRQ_OFFSET],
+                    qemu_irq_invert(irq[CXD4115_IRQ_GPIO_FALL(k) - CXD4115_IRQ_OFFSET])
+                ));
             }
-            sysbus_connect_irq(SYS_BUS_DEVICE(dev), 18, qemu_irq_split(
-                irq[CXD4115_IRQ_GPIO_RISE(22) - CXD4115_IRQ_OFFSET],
-                qemu_irq_invert(irq[CXD4115_IRQ_GPIO_FALL(22) - CXD4115_IRQ_OFFSET])
-            ));
         }
     }
 
@@ -509,7 +510,7 @@ static void cxd4115_init(MachineState *machine)
     qdev_prop_set_drive(dev, "drive", s->drive, &error_fatal);
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_NAND_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio0_in[CXD4115_IRQ_GPIO_NAND]);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio_irq[CXD4115_IRQ_GPIO_NAND]);
 
     dev = qdev_create(NULL, "bionz_dma");
     qdev_prop_set_uint32(dev, "version", 1);
