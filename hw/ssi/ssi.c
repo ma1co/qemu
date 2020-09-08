@@ -63,6 +63,7 @@ static void ssi_slave_realize(DeviceState *dev, Error **errp)
             ssc->cs_polarity != SSI_CS_NONE) {
         qdev_init_gpio_in_named(dev, ssi_cs_default, SSI_GPIO_CS, 1);
     }
+    s->cs = (ssc->cs_polarity == SSI_CS_LOW);
 
     ssc->realize(s, errp);
 }
