@@ -61,7 +61,7 @@ obj-$(CONFIG_MIPS_CPS) += mips_cpc.o
 obj-$(CONFIG_MIPS_ITU) += mips_itu.o
 obj-$(CONFIG_MPS2_FPGAIO) += mps2-fpgaio.o
 obj-$(CONFIG_MPS2_SCC) += mps2-scc.o
-obj-$(CONFIG_BIONZ) += bionz_boss.o bionz_ldec.o bionz_meno.o
+obj-$(CONFIG_BIONZ) += bionz_boss.o bionz_ldec.o bionz_meno.o bionz_power/
 
 obj-$(CONFIG_TZ_MPC) += tz-mpc.o
 obj-$(CONFIG_TZ_PPC) += tz-ppc.o
