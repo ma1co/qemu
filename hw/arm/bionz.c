@@ -399,6 +399,7 @@ static void cxd4108_init(MachineState *machine)
         dev = qdev_create(NULL, "bionz_gpio");
         qdev_prop_set_uint8(dev, "version", 1);
         qdev_prop_set_uint8(dev, "num-gpio", 16);
+        dev->id = g_strdup_printf("gpio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_GPIO_BASE(i));
     }
@@ -406,10 +407,12 @@ static void cxd4108_init(MachineState *machine)
     dev = qdev_create(NULL, "bionz_gpio");
     qdev_prop_set_uint8(dev, "version", 1);
     qdev_prop_set_uint8(dev, "num-gpio", 16);
+    dev->id = "gpioe";
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_GPIOEASY_BASE);
 
     dev = qdev_create(NULL, "bionz_gpiosys");
+    dev->id = "gpios";
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_GPIOSYS_BASE);
     for (i = 0; i < 16; i++) {
@@ -445,6 +448,7 @@ static void cxd4108_init(MachineState *machine)
 
     for (i = 0; i < CXD4108_NUM_SIO; i++) {
         dev = qdev_create(NULL, "bionz_sio");
+        dev->id = g_strdup_printf("sio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_SIO_BASE(i));
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_SIO_BASE(i) + 0x80000);
@@ -513,6 +517,7 @@ static void cxd4115_init(MachineState *machine)
     for (i = 0; i < CXD4115_NUM_GPIO; i++) {
         dev = qdev_create(NULL, "bionz_gpio");
         qdev_prop_set_uint8(dev, "version", 1);
+        dev->id = g_strdup_printf("gpio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_GPIO_BASE(i));
         if (i == 0) {
@@ -563,6 +568,7 @@ static void cxd4115_init(MachineState *machine)
 
     for (i = 0; i < CXD4115_NUM_SIO; i++) {
         dev = qdev_create(NULL, "bionz_sio");
+        dev->id = g_strdup_printf("sio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_SIO_BASE(i));
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4115_SIO_BASE(i) + 0x100);
@@ -637,6 +643,7 @@ static void cxd4132_init(MachineState *machine)
     for (i = 0; i < CXD4132_NUM_GPIO; i++) {
         dev = qdev_create(NULL, "bionz_gpio");
         qdev_prop_set_uint8(dev, "version", 2);
+        dev->id = g_strdup_printf("gpio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_GPIO_BASE(i));
     }
@@ -683,6 +690,7 @@ static void cxd4132_init(MachineState *machine)
 
     for (i = 0; i < CXD4132_NUM_SIO; i++) {
         dev = qdev_create(NULL, "bionz_sio");
+        dev->id = g_strdup_printf("sio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_SIO_BASE(i));
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4132_SIO_BASE(i) + 0x100);
@@ -762,6 +770,7 @@ static void cxd90014_init(MachineState *machine)
     for (i = 0; i < CXD90014_NUM_GPIO; i++) {
         dev = qdev_create(NULL, "bionz_gpio");
         qdev_prop_set_uint8(dev, "version", 3);
+        dev->id = g_strdup_printf("gpio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_GPIO_BASE(i));
     }
@@ -797,6 +806,7 @@ static void cxd90014_init(MachineState *machine)
 
     for (i = 0; i < CXD90014_NUM_SIO; i++) {
         dev = qdev_create(NULL, "bionz_sio");
+        dev->id = g_strdup_printf("sio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_SIO_BASE(i));
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90014_SIO_BASE(i) + 0x100);
@@ -872,6 +882,7 @@ static void cxd90045_init(MachineState *machine)
     for (i = 0; i < CXD90045_NUM_GPIO; i++) {
         dev = qdev_create(NULL, "bionz_gpio");
         qdev_prop_set_uint8(dev, "version", 3);
+        dev->id = g_strdup_printf("gpio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_GPIO_BASE(i));
     }
@@ -907,6 +918,7 @@ static void cxd90045_init(MachineState *machine)
 
     for (i = 0; i < CXD90045_NUM_SIO; i++) {
         dev = qdev_create(NULL, "bionz_sio");
+        dev->id = g_strdup_printf("sio%d", i);
         qdev_init_nofail(dev);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_SIO_BASE(i));
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90045_SIO_BASE(i) + 0x100);
