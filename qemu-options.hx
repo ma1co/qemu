@@ -581,6 +581,10 @@ STEXI
 Set system UUID.
 ETEXI
 
+DEF("connect-gpio", HAS_ARG, QEMU_OPTION_connect_gpio,
+    "-connect-gpio odev=id[,oname=str][,onum=i],idev=id[,iname=str][,inum=i]\n"
+    "                connect two GPIOs\n", QEMU_ARCH_ALL)
+
 STEXI
 @end table
 ETEXI

@@ -2281,6 +2281,17 @@ static int device_init_func(void *opaque, QemuOpts *opts, Error **errp)
     return 0;
 }
 
+static int connect_gpio_func(void *opaque, QemuOpts *opts, Error **errp)
+{
+    Error *err = NULL;
+
+    if (qdev_connect_gpio(opts, &err)) {
+        error_report_err(err);
+        return -1;
+    }
+    return 0;
+}
+
 static int chardev_init_func(void *opaque, QemuOpts *opts, Error **errp)
 {
     Error *local_err = NULL;
@@ -2993,6 +3004,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_icount_opts);
     qemu_add_opts(&qemu_semihosting_config_opts);
     qemu_add_opts(&qemu_fw_cfg_opts);
+    qemu_add_opts(&qemu_connect_gpio_opts);
     module_call_init(MODULE_INIT_OPTS);
 
     runstate_init();
@@ -3963,6 +3975,11 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_nouserconfig:
                 /* Nothing to be parsed here. Especially, do not error out below. */
                 break;
+            case QEMU_OPTION_connect_gpio:
+                if (!qemu_opts_parse_noisily(qemu_find_opts("connect-gpio"), optarg, false)) {
+                    exit(1);
+                }
+                break;
             default:
                 if (os_parse_cmd_args(popt->index, optarg)) {
                     error_report("Option not supported in this build");
@@ -4541,6 +4558,10 @@ int main(int argc, char **argv, char **envp)
     rom_set_order_override(FW_CFG_ORDER_OVERRIDE_DEVICE);
     if (qemu_opts_foreach(qemu_find_opts("device"),
                           device_init_func, NULL, NULL)) {
+        exit(1);
+    }
+
+    if (qemu_opts_foreach(qemu_find_opts("connect-gpio"), connect_gpio_func, NULL, NULL)) {
         exit(1);
     }
 

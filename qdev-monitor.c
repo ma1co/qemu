@@ -350,7 +350,7 @@ static void qbus_list_dev(BusState *bus, Error **errp)
     error_append_hint(errp, "\n");
 }
 
-static BusState *qbus_find_bus(DeviceState *dev, char *elem)
+static BusState *qbus_find_bus(DeviceState *dev, const char *elem)
 {
     BusState *child;
 
@@ -362,7 +362,7 @@ static BusState *qbus_find_bus(DeviceState *dev, char *elem)
     return NULL;
 }
 
-static DeviceState *qbus_find_dev(BusState *bus, char *elem)
+static DeviceState *qbus_find_dev(BusState *bus, const char *elem)
 {
     BusChild *kid;
 
@@ -964,5 +964,84 @@ int qemu_global_option(const char *str)
         return -1;
     }
 
+    return 0;
+}
+
+QemuOptsList qemu_connect_gpio_opts = {
+    .name = "connect-gpio",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_connect_gpio_opts.head),
+    .desc = {
+        {
+            .name = "odev",
+            .type = QEMU_OPT_STRING,
+        },
+        {
+            .name = "oname",
+            .type = QEMU_OPT_STRING,
+        },
+        {
+            .name = "onum",
+            .type = QEMU_OPT_NUMBER,
+        },
+        {
+            .name = "idev",
+            .type = QEMU_OPT_STRING,
+        },
+        {
+            .name = "iname",
+            .type = QEMU_OPT_STRING,
+        },
+        {
+            .name = "inum",
+            .type = QEMU_OPT_NUMBER,
+        },
+        { /* end of list */ }
+    },
+};
+
+int qdev_connect_gpio(QemuOpts *opts, Error **errp)
+{
+    const char *odev_name, *idev_name;
+    const char *oname, *iname;
+    int onum, inum;
+    DeviceState *odev, *idev;
+    qemu_irq irq;
+
+    odev_name = qemu_opt_get(opts, "odev");
+    if (!odev_name) {
+        error_setg(errp, QERR_MISSING_PARAMETER, "odev");
+        return -1;
+    }
+    oname = qemu_opt_get(opts, "oname");
+    onum = qemu_opt_get_number(opts, "onum", 0);
+
+    idev_name = qemu_opt_get(opts, "idev");
+    if (!idev_name) {
+        error_setg(errp, QERR_MISSING_PARAMETER, "idev");
+        return -1;
+    }
+    iname = qemu_opt_get(opts, "iname");
+    inum = qemu_opt_get_number(opts, "inum", 0);
+
+    odev = find_device_state(odev_name, NULL);
+    if (!odev) {
+        odev = qbus_find_dev(sysbus_get_default(), odev_name);
+    }
+    if (!odev) {
+        error_set(errp, ERROR_CLASS_DEVICE_NOT_FOUND, "Device '%s' not found", odev_name);
+        return -1;
+    }
+
+    idev = find_device_state(idev_name, NULL);
+    if (!idev) {
+        idev = qbus_find_dev(sysbus_get_default(), idev_name);
+    }
+    if (!idev) {
+        error_set(errp, ERROR_CLASS_DEVICE_NOT_FOUND, "Device '%s' not found", idev_name);
+        return -1;
+    }
+
+    irq = qdev_get_gpio_in_named(idev, iname, inum);
+    qdev_connect_gpio_out_named(odev, oname, onum, irq);
     return 0;
 }

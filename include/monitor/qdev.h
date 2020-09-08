@@ -13,5 +13,6 @@ void qmp_device_add(QDict *qdict, QObject **ret_data, Error **errp);
 int qdev_device_help(QemuOpts *opts);
 DeviceState *qdev_device_add(QemuOpts *opts, Error **errp);
 void qdev_set_id(DeviceState *dev, const char *id);
+int qdev_connect_gpio(QemuOpts *opts, Error **errp);
 
 #endif

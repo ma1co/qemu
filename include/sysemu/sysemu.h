@@ -214,5 +214,6 @@ extern QemuOptsList qemu_nic_opts;
 extern QemuOptsList qemu_net_opts;
 extern QemuOptsList qemu_global_opts;
 extern QemuOptsList qemu_mon_opts;
+extern QemuOptsList qemu_connect_gpio_opts;
 
 #endif
