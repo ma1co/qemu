@@ -165,17 +165,16 @@ static const struct MemoryRegionOps hwtimer_ops = {
     .valid.max_access_size = 4,
 };
 
-static int hwtimer_init(SysBusDevice *sbd)
+static void hwtimer_realize(DeviceState *dev, Error **errp)
 {
-    HwtimerState *s = BIONZ_HWTIMER(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    HwtimerState *s = BIONZ_HWTIMER(dev);
 
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, hwtimer_tick, s);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &hwtimer_ops, s, TYPE_BIONZ_HWTIMER, 0x20);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &hwtimer_ops, s, TYPE_BIONZ_HWTIMER, 0x20);
     sysbus_init_mmio(sbd, &s->mmio);
     sysbus_init_irq(sbd, &s->intr);
-
-    return 0;
 }
 
 static Property hwtimer_properties[] = {
@@ -186,9 +185,7 @@ static Property hwtimer_properties[] = {
 static void hwtimer_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = hwtimer_init;
+    dc->realize = hwtimer_realize;
     dc->reset = hwtimer_reset;
     dc->props = hwtimer_properties;
 }

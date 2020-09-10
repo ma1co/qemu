@@ -254,22 +254,21 @@ static void gpio_reset(DeviceState *dev)
     gpio_update(s);
 }
 
-static int gpio_init(SysBusDevice *sbd)
+static void gpio_realize(DeviceState *dev, Error **errp)
 {
     int i;
-    GpioState *s = BIONZ_GPIO(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    GpioState *s = BIONZ_GPIO(dev);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &gpio_ops, s, TYPE_BIONZ_GPIO, 0x100);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &gpio_ops, s, TYPE_BIONZ_GPIO, 0x100);
     sysbus_init_mmio(sbd, &s->mmio);
 
     assert(s->num_gpio <= 32);
-    qdev_init_gpio_in(DEVICE(sbd), gpio_input_handler, s->num_gpio);
-    qdev_init_gpio_out(DEVICE(sbd), s->outputs, s->num_gpio);
+    qdev_init_gpio_in(dev, gpio_input_handler, s->num_gpio);
+    qdev_init_gpio_out(dev, s->outputs, s->num_gpio);
     for (i = 0; i < s->num_gpio; i++) {
         sysbus_init_irq(sbd, &s->irqs[i]);
     }
-
-    return 0;
 }
 
 static Property gpio_properties[] = {
@@ -281,9 +280,7 @@ static Property gpio_properties[] = {
 static void gpio_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = gpio_init;
+    dc->realize = gpio_realize;
     dc->reset = gpio_reset;
     dc->props = gpio_properties;
 }

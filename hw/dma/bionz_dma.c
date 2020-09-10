@@ -321,19 +321,18 @@ static void dma_reset(DeviceState *dev)
     }
 }
 
-static int dma_init(SysBusDevice *sbd)
+static void dma_realize(DeviceState *dev, Error **errp)
 {
     int i;
-    DmaState *s = BIONZ_DMA(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    DmaState *s = BIONZ_DMA(dev);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &dma_ops, s, TYPE_BIONZ_DMA, 0x1000);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &dma_ops, s, TYPE_BIONZ_DMA, 0x1000);
     sysbus_init_mmio(sbd, &s->mmio);
 
     for (i = 0; i < s->num_channel + 1; i++) {
         sysbus_init_irq(sbd, &s->intr[i]);
     }
-
-    return 0;
 }
 
 static Property dma_properties[] = {
@@ -345,9 +344,7 @@ static Property dma_properties[] = {
 static void dma_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = dma_init;
+    dc->realize = dma_realize;
     dc->props = dma_properties;
     dc->reset = dma_reset;
 }

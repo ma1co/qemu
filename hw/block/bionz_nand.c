@@ -2,7 +2,7 @@
 
 #include "qemu/osdep.h"
 #include "hw/sysbus.h"
-#include "qemu/error-report.h"
+#include "qapi/error.h"
 #include "qemu/log.h"
 #include "sysemu/block-backend.h"
 
@@ -366,31 +366,30 @@ static void nand_reset(DeviceState *dev)
     timer_del(s->update_irq_timer);
 }
 
-static int nand_init(SysBusDevice *sbd)
+static void nand_realize(DeviceState *dev, Error **errp)
 {
     uint32_t length;
-    NandState *s = BIONZ_NAND(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    NandState *s = BIONZ_NAND(dev);
 
     if (!s->size && s->blk) {
         length = blk_getlength(s->blk);
         s->size = (length / (NAND_PAGE_SIZE + NAND_SPARE_SIZE)) * NAND_PAGE_SIZE;
         if (s->size / NAND_PAGE_SIZE * (NAND_PAGE_SIZE + NAND_SPARE_SIZE) != length) {
-            error_report("Can't determine size from drive");
-            return -1;
+            error_setg(errp, "Can't determine size from drive");
+            return;
         }
     }
 
-    memory_region_init_io(&s->reg_mmio, OBJECT(sbd), &nand_reg_ops, s, TYPE_BIONZ_NAND ".reg", 0x800);
+    memory_region_init_io(&s->reg_mmio, OBJECT(dev), &nand_reg_ops, s, TYPE_BIONZ_NAND ".reg", 0x800);
     sysbus_init_mmio(sbd, &s->reg_mmio);
 
-    memory_region_init_io(&s->data_mmio, OBJECT(sbd), &nand_data_ops, s, TYPE_BIONZ_NAND ".data", 0x20);
+    memory_region_init_io(&s->data_mmio, OBJECT(dev), &nand_data_ops, s, TYPE_BIONZ_NAND ".data", 0x20);
     sysbus_init_mmio(sbd, &s->data_mmio);
 
     sysbus_init_irq(sbd, &s->intr);
 
     s->update_irq_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nand_update_irq_delayed, s);
-
-    return 0;
 }
 
 static Property nand_properties[] = {
@@ -402,9 +401,7 @@ static Property nand_properties[] = {
 static void nand_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = nand_init;
+    dc->realize = nand_realize;
     dc->reset = nand_reset;
     dc->props = nand_properties;
 }

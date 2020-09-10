@@ -112,28 +112,25 @@ static void sio_reset(DeviceState *dev)
     s->reg_n = 0;
 }
 
-static int sio_init(SysBusDevice *sbd)
+static void sio_realize(DeviceState *dev, Error **errp)
 {
-    SioState *s = BIONZ_SIO(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    SioState *s = BIONZ_SIO(dev);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &sio_ops, s, TYPE_BIONZ_SIO ".mmio", 0x100);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &sio_ops, s, TYPE_BIONZ_SIO ".mmio", 0x100);
     sysbus_init_mmio(sbd, &s->mmio);
 
-    memory_region_init_ram_nomigrate(&s->bufram, OBJECT(sbd), TYPE_BIONZ_SIO ".buf", 0x100, &error_fatal);
+    memory_region_init_ram_nomigrate(&s->bufram, OBJECT(dev), TYPE_BIONZ_SIO ".buf", 0x100, &error_fatal);
     sysbus_init_mmio(sbd, &s->bufram);
 
     sysbus_init_irq(sbd, &s->intr);
-    s->ssi = ssi_create_bus(DEVICE(sbd), "sio");
-
-    return 0;
+    s->ssi = ssi_create_bus(dev, "sio");
 }
 
 static void sio_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = sio_init;
+    dc->realize = sio_realize;
     dc->reset = sio_reset;
 }
 

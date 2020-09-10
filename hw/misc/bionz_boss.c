@@ -217,12 +217,13 @@ static void boss_irq_nand_handler(void *opaque, int irq, int level)
     boss_update_irq(s);
 }
 
-static int boss_init(SysBusDevice *sbd)
+static void boss_realize(DeviceState *dev, Error **errp)
 {
-    BossState *s = BIONZ_BOSS(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    BossState *s = BIONZ_BOSS(dev);
 
-    memory_region_init(&s->container, OBJECT(sbd), TYPE_BIONZ_BOSS ".container", UINT64_MAX);
-    memory_region_init_alias(&s->system_memory_alias, OBJECT(sbd), TYPE_BIONZ_BOSS ".sysmem", get_system_memory(), 0, UINT64_MAX);
+    memory_region_init(&s->container, OBJECT(dev), TYPE_BIONZ_BOSS ".container", UINT64_MAX);
+    memory_region_init_alias(&s->system_memory_alias, OBJECT(dev), TYPE_BIONZ_BOSS ".sysmem", get_system_memory(), 0, UINT64_MAX);
     memory_region_add_subregion(&s->container, 0, &s->system_memory_alias);
 
     object_initialize(&s->cpu, sizeof(s->cpu), TYPE_BIONZ_BOSS_CPU);
@@ -232,22 +233,20 @@ static int boss_init(SysBusDevice *sbd)
     object_property_set_link(OBJECT(&s->cpu), OBJECT(&s->container), "memory", &error_fatal);
     qdev_init_nofail(DEVICE(&s->cpu));
 
-    memory_region_init_ram(&s->sram, OBJECT(sbd), TYPE_BIONZ_BOSS ".sram", 0x4000, &error_fatal);
+    memory_region_init_ram(&s->sram, OBJECT(dev), TYPE_BIONZ_BOSS ".sram", 0x4000, &error_fatal);
     sysbus_init_mmio(sbd, &s->sram);
 
-    memory_region_init_io(&s->io, OBJECT(sbd), &boss_io_ops, s, TYPE_BIONZ_BOSS ".io", 0x10);
+    memory_region_init_io(&s->io, OBJECT(dev), &boss_io_ops, s, TYPE_BIONZ_BOSS ".io", 0x10);
     sysbus_init_mmio(sbd, &s->io);
 
-    memory_region_init_io(&s->clkrst, OBJECT(sbd), &boss_clkrst_ops, s, TYPE_BIONZ_BOSS ".clkrst", 0x10);
+    memory_region_init_io(&s->clkrst, OBJECT(dev), &boss_clkrst_ops, s, TYPE_BIONZ_BOSS ".clkrst", 0x10);
     sysbus_init_mmio(sbd, &s->clkrst);
 
-    memory_region_init_io(&s->intc, OBJECT(sbd), &boss_intc_ops, s, TYPE_BIONZ_BOSS ".intc", 0x1000);
+    memory_region_init_io(&s->intc, OBJECT(dev), &boss_intc_ops, s, TYPE_BIONZ_BOSS ".intc", 0x1000);
     memory_region_add_subregion(&s->container, BOSS_INTC_BASE, &s->intc);
 
-    qdev_init_gpio_in(DEVICE(sbd), boss_irq_nand_handler, 1);
+    qdev_init_gpio_in(dev, boss_irq_nand_handler, 1);
     sysbus_init_irq(sbd, &s->irq_ext);
-
-    return 0;
 }
 
 static void boss_cpu_reset(CPUState *s)
@@ -285,9 +284,7 @@ type_init(boss_cpu_register_type)
 static void boss_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = boss_init;
+    dc->realize = boss_realize;
     dc->reset = boss_reset;
 }
 

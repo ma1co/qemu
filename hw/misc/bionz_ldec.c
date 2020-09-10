@@ -172,28 +172,25 @@ static const struct MemoryRegionOps ldec_fifo_ops = {
     .valid.max_access_size = 4,
 };
 
-static int ldec_init(SysBusDevice *sbd)
+static void ldec_realize(DeviceState *dev, Error **errp)
 {
-    LdecState *s = BIONZ_LDEC(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    LdecState *s = BIONZ_LDEC(dev);
 
-    memory_region_init(&s->container, OBJECT(sbd), TYPE_BIONZ_LDEC, 0x8000);
+    memory_region_init(&s->container, OBJECT(dev), TYPE_BIONZ_LDEC, 0x8000);
     sysbus_init_mmio(sbd, &s->container);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &ldec_ops, s, TYPE_BIONZ_LDEC ".mmio", 0x20);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &ldec_ops, s, TYPE_BIONZ_LDEC ".mmio", 0x20);
     memory_region_add_subregion(&s->container, 0, &s->mmio);
 
-    memory_region_init_io(&s->fifo, OBJECT(sbd), &ldec_fifo_ops, s, TYPE_BIONZ_LDEC ".fifo", 0x4);
+    memory_region_init_io(&s->fifo, OBJECT(dev), &ldec_fifo_ops, s, TYPE_BIONZ_LDEC ".fifo", 0x4);
     memory_region_add_subregion(&s->container, 0x4000, &s->fifo);
-
-    return 0;
 }
 
 static void ldec_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = ldec_init;
+    dc->realize = ldec_realize;
     dc->reset = ldec_reset;
 }
 

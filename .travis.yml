@@ -9,7 +9,6 @@ env:
     - BUILD_DIR="."
     - CONFIG="--target-list=arm-softmmu --disable-docs --disable-tools --disable-user"
     - TEST_CMD=":"
-    - MAKEFLAGS="-j3"
 git:
   # we want to do this ourselves
   submodules: false
@@ -19,4 +18,4 @@ before_script:
   - mkdir -p ${BUILD_DIR} && cd ${BUILD_DIR}
   - ${SRC_DIR}/configure ${CONFIG} || { cat config.log && exit 1; }
 script:
-  - make ${MAKEFLAGS} && ${TEST_CMD}
+  - make -j3 && ${TEST_CMD}

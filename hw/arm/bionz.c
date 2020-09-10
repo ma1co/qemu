@@ -848,8 +848,8 @@ static void cxd90045_init(MachineState *machine)
 
     object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
     object_property_set_bool(OBJECT(&s->cpu), false, "has_el3", &error_fatal);
-    ARM_CPU(&s->cpu)->mvfr0 = 0x10110221;
-    ARM_CPU(&s->cpu)->mvfr1 = 0x11000011;
+    ARM_CPU(&s->cpu)->isar.mvfr0 = 0x10110221;
+    ARM_CPU(&s->cpu)->isar.mvfr1 = 0x11000011;
     qdev_init_nofail(DEVICE(&s->cpu));
 
     mem = g_new(MemoryRegion, 1);

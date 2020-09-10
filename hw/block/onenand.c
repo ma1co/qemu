@@ -28,6 +28,7 @@
 #include "exec/memory.h"
 #include "hw/sysbus.h"
 #include "qemu/error-report.h"
+#include "qemu/log.h"
 #include <math.h>
 
 /* 11 for 2kB-page OneNAND ("2nd generation") and 10 for 1kB-page chips */
@@ -595,8 +596,8 @@ static void onenand_command(OneNANDState *s)
     default:
         s->status |= ONEN_ERR_CMD;
         s->intstatus |= ONEN_INT;
-        fprintf(stderr, "%s: unknown OneNAND command %x\n",
-                        __func__, s->command);
+        qemu_log_mask(LOG_GUEST_ERROR, "unknown OneNAND command %x\n",
+                      s->command);
     }
 
     onenand_intr_update(s);
@@ -609,7 +610,7 @@ static uint64_t onenand_read(void *opaque, hwaddr addr,
     int offset = addr >> s->shift;
 
     switch (offset) {
-    case 0x0000 ... 0xc000:
+    case 0x0000 ... 0xbffe:
         return lduw_le_p(s->boot[0] + addr);
 
     case 0xf000:	/* Manufacturer ID */
@@ -658,12 +659,13 @@ static uint64_t onenand_read(void *opaque, hwaddr addr,
     case 0xff02:	/* ECC Result of spare area data */
     case 0xff03:	/* ECC Result of main area data */
     case 0xff04:	/* ECC Result of spare area data */
-        hw_error("%s: implement ECC\n", __func__);
+        qemu_log_mask(LOG_UNIMP,
+                      "onenand: ECC result registers unimplemented\n");
         return 0x0000;
     }
 
-    fprintf(stderr, "%s: unknown OneNAND register %x\n",
-                    __func__, offset);
+    qemu_log_mask(LOG_GUEST_ERROR, "read of unknown OneNAND register 0x%x\n",
+                  offset);
     return 0;
 }
 
@@ -707,8 +709,9 @@ static void onenand_write(void *opaque, hwaddr addr,
             break;
 
         default:
-            fprintf(stderr, "%s: unknown OneNAND boot command %"PRIx64"\n",
-                            __func__, value);
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "unknown OneNAND boot command %" PRIx64 "\n",
+                          value);
         }
         break;
 
@@ -758,8 +761,9 @@ static void onenand_write(void *opaque, hwaddr addr,
         break;
 
     default:
-        fprintf(stderr, "%s: unknown OneNAND register %x\n",
-                        __func__, offset);
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "write to unknown OneNAND register 0x%x\n",
+                      offset);
     }
 }
 
@@ -769,9 +773,9 @@ static const MemoryRegionOps onenand_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static int onenand_initfn(SysBusDevice *sbd)
+static void onenand_realize(DeviceState *dev, Error **errp)
 {
-    DeviceState *dev = DEVICE(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     OneNANDState *s = ONE_NAND(dev);
     uint32_t size;
     void *ram;
@@ -781,8 +785,8 @@ static int onenand_initfn(SysBusDevice *sbd)
         size = blk_getlength(s->blk);
         s->id.dev = ((int)log2((size / 0x210) >> 15) & 7) << 4;
         if ((1 << (15 + ((s->id.dev >> 4) & 7))) * 0x210 != size) {
-            error_report("Can't determine size from drive");
-            return -1;
+            error_setg(errp, "Can't determine size from drive");
+            return;
         }
     }
     size = 1 << (24 + ((s->id.dev >> 4) & 7));
@@ -801,14 +805,14 @@ static int onenand_initfn(SysBusDevice *sbd)
                           0xff, size + (size >> 5));
     } else {
         if (blk_is_read_only(s->blk)) {
-            error_report("Can't use a read-only drive");
-            return -1;
+            error_setg(errp, "Can't use a read-only drive");
+            return;
         }
         blk_set_perm(s->blk, BLK_PERM_CONSISTENT_READ | BLK_PERM_WRITE,
                      BLK_PERM_ALL, &local_err);
         if (local_err) {
-            error_report_err(local_err);
-            return -1;
+            error_propagate(errp, local_err);
+            return;
         }
         s->blk_cur = s->blk;
     }
@@ -833,7 +837,6 @@ static int onenand_initfn(SysBusDevice *sbd)
                      | ((s->id.dev & 0xff) << 8)
                      | (s->id.ver & 0xff),
                      &vmstate_onenand, s);
-    return 0;
 }
 
 static Property onenand_properties[] = {
@@ -848,9 +851,8 @@ static Property onenand_properties[] = {
 static void onenand_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-    k->init = onenand_initfn;
+    dc->realize = onenand_realize;
     dc->reset = onenand_system_reset;
     dc->props = onenand_properties;
 }

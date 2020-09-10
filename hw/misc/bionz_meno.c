@@ -218,23 +218,22 @@ static void meno_reset(DeviceState *dev)
     s->poll_mode = 0;
 }
 
-static int meno_init(SysBusDevice *sbd)
+static void meno_realize(DeviceState *dev, Error **errp)
 {
-    MenoState *s = BIONZ_MENO(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    MenoState *s = BIONZ_MENO(dev);
 
-    memory_region_init(&s->container, OBJECT(sbd), TYPE_BIONZ_MENO, 0x3000);
+    memory_region_init(&s->container, OBJECT(dev), TYPE_BIONZ_MENO, 0x3000);
     sysbus_init_mmio(sbd, &s->container);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &meno_ops, s, TYPE_BIONZ_MENO ".mmio", 0x1000);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &meno_ops, s, TYPE_BIONZ_MENO ".mmio", 0x1000);
     memory_region_add_subregion(&s->container, 0, &s->mmio);
 
     /* The firmware is written to the fwram by the device driver. The firmware is ignored by this model. */
-    memory_region_init_ram_nomigrate(&s->fwram, OBJECT(sbd), TYPE_BIONZ_MENO ".fwram", 0x2000, &error_fatal);
+    memory_region_init_ram_nomigrate(&s->fwram, OBJECT(dev), TYPE_BIONZ_MENO ".fwram", 0x2000, &error_fatal);
     memory_region_add_subregion(&s->container, 0x1000, &s->fwram);
 
     sysbus_init_irq(sbd, &s->intr);
-
-    return 0;
 }
 
 static Property meno_properties[] = {
@@ -245,9 +244,7 @@ static Property meno_properties[] = {
 static void meno_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = meno_init;
+    dc->realize = meno_realize;
     dc->reset = meno_reset;
     dc->props = meno_properties;
 }

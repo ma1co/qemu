@@ -34,12 +34,12 @@ static const struct MemoryRegionOps bootcon_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static int bootcon_init(SysBusDevice *sbd)
+static void bootcon_realize(DeviceState *dev, Error **errp)
 {
-    BootconState *s = BIONZ_BOOTCON(sbd);
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &bootcon_ops, s, TYPE_BIONZ_BOOTCON, 4);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    BootconState *s = BIONZ_BOOTCON(dev);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &bootcon_ops, s, TYPE_BIONZ_BOOTCON, 4);
     sysbus_init_mmio(sbd, &s->mmio);
-    return 0;
 }
 
 static Property bootcon_properties[] = {
@@ -50,8 +50,7 @@ static Property bootcon_properties[] = {
 static void bootcon_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-    k->init = bootcon_init;
+    dc->realize = bootcon_realize;
     dc->props = bootcon_properties;
 }
 

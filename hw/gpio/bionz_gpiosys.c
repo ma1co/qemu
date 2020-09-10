@@ -177,29 +177,26 @@ static void gpiosys_reset(DeviceState *dev)
     gpiosys_update(s);
 }
 
-static int gpiosys_init(SysBusDevice *sbd)
+static void gpiosys_realize(DeviceState *dev, Error **errp)
 {
     int i;
-    GpiosysState *s = BIONZ_GPIOSYS(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    GpiosysState *s = BIONZ_GPIOSYS(dev);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &gpiosys_ops, s, TYPE_BIONZ_GPIOSYS, 0x100);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &gpiosys_ops, s, TYPE_BIONZ_GPIOSYS, 0x100);
     sysbus_init_mmio(sbd, &s->mmio);
 
-    qdev_init_gpio_in(DEVICE(sbd), gpiosys_input_handler, 16);
-    qdev_init_gpio_out(DEVICE(sbd), s->outputs, 16);
+    qdev_init_gpio_in(dev, gpiosys_input_handler, 16);
+    qdev_init_gpio_out(dev, s->outputs, 16);
     for (i = 0; i < 16; i++) {
         sysbus_init_irq(sbd, &s->irqs[i]);
     }
-
-    return 0;
 }
 
 static void gpiosys_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = gpiosys_init;
+    dc->realize = gpiosys_realize;
     dc->reset = gpiosys_reset;
 }
 

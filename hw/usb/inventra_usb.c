@@ -538,18 +538,18 @@ static const struct MemoryRegionOps inventra_usb_ops = {
     .valid.max_access_size = 4,
 };
 
-static int inventra_usb_init(SysBusDevice *dev)
+static void inventra_usb_realize(DeviceState *dev, Error **errp)
 {
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     InventraUsbState *s = INVENTRA_USB(dev);
 
     tcp_usb_init(&s->tcp_usb_state, inventra_usb_tcp_callback, s);
 
     memory_region_init_io(&s->mmio, OBJECT(dev), &inventra_usb_ops, s, TYPE_INVENTRA_USB, 0x350);
-    sysbus_init_mmio(dev, &s->mmio);
+    sysbus_init_mmio(sbd, &s->mmio);
 
-    sysbus_init_irq(dev, &s->intr0);
-    sysbus_init_irq(dev, &s->intr1);
-    return 0;
+    sysbus_init_irq(sbd, &s->intr0);
+    sysbus_init_irq(sbd, &s->intr1);
 }
 
 static Property inventra_usb_properties[] = {
@@ -560,9 +560,7 @@ static Property inventra_usb_properties[] = {
 static void inventra_usb_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = inventra_usb_init;
+    dc->realize = inventra_usb_realize;
     dc->reset = inventra_usb_reset;
     dc->props = inventra_usb_properties;
 }

@@ -499,14 +499,15 @@ static void fujitsu_usb_reset(DeviceState *dev)
 
 }
 
-static int fujitsu_usb_init(SysBusDevice *dev)
+static void fujitsu_usb_realize(DeviceState *dev, Error **errp)
 {
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     FujitsuUsbState *s = FUJITSU_USB(dev);
 
     tcp_usb_init(&s->tcp_usb_state, fujitsu_usb_tcp_callback, s);
 
     memory_region_init(&s->container, OBJECT(dev), TYPE_FUJITSU_USB ".container", 0x10000);
-    sysbus_init_mmio(dev, &s->container);
+    sysbus_init_mmio(sbd, &s->container);
 
     memory_region_init_io(&s->mmio, OBJECT(dev), &fujitsu_usb_ops, s, TYPE_FUJITSU_USB ".mmio", 0x8100);
     memory_region_add_subregion(&s->container, 0, &s->mmio);
@@ -515,10 +516,9 @@ static int fujitsu_usb_init(SysBusDevice *dev)
     memory_region_add_subregion(&s->container, 0x8100, &s->ram);
 
     memory_region_init_io(&s->hdmac, OBJECT(dev), &fujitsu_usb_hdmac_ops, s, TYPE_FUJITSU_USB ".hdmac", 0x100);
-    sysbus_init_mmio(dev, &s->hdmac);
+    sysbus_init_mmio(sbd, &s->hdmac);
 
-    sysbus_init_irq(dev, &s->intr);
-    return 0;
+    sysbus_init_irq(sbd, &s->intr);
 }
 
 static Property fujitsu_usb_properties[] = {
@@ -529,9 +529,7 @@ static Property fujitsu_usb_properties[] = {
 static void fujitsu_usb_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = fujitsu_usb_init;
+    dc->realize = fujitsu_usb_realize;
     dc->reset = fujitsu_usb_reset;
     dc->props = fujitsu_usb_properties;
 }

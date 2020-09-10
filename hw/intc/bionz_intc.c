@@ -189,26 +189,23 @@ static void intc_reset(DeviceState *dev)
     }
 }
 
-static int intc_init(SysBusDevice *sbd)
+static void intc_realize(DeviceState *dev, Error **errp)
 {
-    IntcState *s = BIONZ_INTC(sbd);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    IntcState *s = BIONZ_INTC(dev);
 
-    memory_region_init_io(&s->mmio, OBJECT(sbd), &intc_ops, s, TYPE_BIONZ_INTC, 0x500);
+    memory_region_init_io(&s->mmio, OBJECT(dev), &intc_ops, s, TYPE_BIONZ_INTC, 0x500);
     sysbus_init_mmio(sbd, &s->mmio);
 
-    qdev_init_gpio_in(DEVICE(sbd), intc_irq_handler, 32 * 16);
+    qdev_init_gpio_in(dev, intc_irq_handler, 32 * 16);
     sysbus_init_irq(sbd, &s->irq);
     sysbus_init_irq(sbd, &s->fiq);
-
-    return 0;
 }
 
 static void intc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = intc_init;
+    dc->realize = intc_realize;
     dc->reset = intc_reset;
 }
 

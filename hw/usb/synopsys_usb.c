@@ -480,17 +480,17 @@ static const struct MemoryRegionOps synopsys_usb_ops = {
     .valid.max_access_size = 4,
 };
 
-static int synopsys_usb_init(SysBusDevice *dev)
+static void synopsys_usb_realize(DeviceState *dev, Error **errp)
 {
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     SynopsysUsbState *s = SYNOPSYS_USB(dev);
 
     tcp_usb_init(&s->tcp_usb_state, synopsys_usb_tcp_callback, s);
 
     memory_region_init_io(&s->mmio, OBJECT(dev), &synopsys_usb_ops, s, TYPE_SYNOPSYS_USB, 0x40000);
-    sysbus_init_mmio(dev, &s->mmio);
+    sysbus_init_mmio(sbd, &s->mmio);
 
-    sysbus_init_irq(dev, &s->irq);
-    return 0;
+    sysbus_init_irq(sbd, &s->irq);
 }
 
 static Property synopsys_usb_properties[] = {
@@ -501,9 +501,7 @@ static Property synopsys_usb_properties[] = {
 static void synopsys_usb_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-
-    k->init = synopsys_usb_init;
+    dc->realize = synopsys_usb_realize;
     dc->reset = synopsys_usb_reset;
     dc->props = synopsys_usb_properties;
 }
