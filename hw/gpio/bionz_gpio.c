@@ -2,6 +2,9 @@
 
 #include "qemu/osdep.h"
 #include "qemu/log.h"
+#include "hw/hw.h"
+#include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
 
 #define GPIO_V1_DIR     0x00

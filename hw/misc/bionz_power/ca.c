@@ -1,6 +1,7 @@
 /* QEMU model of the Sony CA power IC (19A44FDAXBG) */
 
 #include "qemu/osdep.h"
+#include "hw/irq.h"
 #include "hw/ssi/ssi.h"
 #include "qemu/timer.h"
 

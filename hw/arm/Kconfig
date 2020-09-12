@@ -20,6 +20,10 @@ config ARM_VIRT
     select SMBIOS
     select VIRTIO_MMIO
     select ACPI_PCI
+    select MEM_DEVICE
+    select DIMM
+    select ACPI_MEMORY_HOTPLUG
+    select ACPI_HW_REDUCED
 
 config CHEETAH
     bool
@@ -90,6 +94,8 @@ config MUSCA
     select ARMSSE
     select PL011
     select PL031
+    select SPLIT_IRQ
+    select UNIMP
 
 config MUSICPAL
     bool
@@ -225,6 +231,7 @@ config STELLARIS
     select SSI_SD
     select STELLARIS_INPUT
     select STELLARIS_ENET # ethernet
+    select UNIMP
 
 config STRONGARM
     bool
@@ -291,6 +298,7 @@ config ALLWINNER_A10
     select ALLWINNER_A10_PIC
     select ALLWINNER_EMAC
     select SERIAL
+    select UNIMP
 
 config RASPI
     bool
@@ -301,6 +309,7 @@ config RASPI
 config STM32F205_SOC
     bool
     select ARM_V7M
+    select OR_IRQ
     select STM32F2XX_TIMER
     select STM32F2XX_USART
     select STM32F2XX_SYSCFG
@@ -327,6 +336,7 @@ config XLNX_VERSAL
     select PL011
     select CADENCE
     select VIRTIO_MMIO
+    select UNIMP
 
 config FSL_IMX25
     bool
@@ -362,6 +372,7 @@ config ASPEED_SOC
     select SSI_M25P80
     select TMP105
     select TMP421
+    select UNIMP
 
 config MPS2
     bool
@@ -369,8 +380,11 @@ config MPS2
     select LAN9118
     select MPS2_FPGAIO
     select MPS2_SCC
+    select OR_IRQ
     select PL022    # Serial port
     select PL080    # DMA controller
+    select SPLIT_IRQ
+    select UNIMP
 
 config FSL_IMX7
     bool
@@ -383,6 +397,7 @@ config FSL_IMX7
     select IMX_I2C
     select PCI_EXPRESS_DESIGNWARE
     select SDHCI
+    select UNIMP
 
 config ARM_SMMUV3
     bool
@@ -394,6 +409,7 @@ config FSL_IMX6UL
     select IMX_FEC
     select IMX_I2C
     select SDHCI
+    select UNIMP
 
 config MICROBIT
     bool
@@ -403,6 +419,7 @@ config NRF51_SOC
     bool
     select I2C
     select ARM_V7M
+    select UNIMP
 
 config EMCRAFT_SF2
     bool
@@ -415,6 +432,7 @@ config MSF2
     select PTIMER
     select SERIAL
     select SSI
+    select UNIMP
 
 config ZAURUS
     bool
@@ -448,9 +466,12 @@ config ARMSSE
     select IOTKIT_SECCTL
     select IOTKIT_SYSCTL
     select IOTKIT_SYSINFO
+    select OR_IRQ
+    select SPLIT_IRQ
     select TZ_MPC
     select TZ_MSC
     select TZ_PPC
+    select UNIMP
 
 config ARMSSE_CPUID
     bool

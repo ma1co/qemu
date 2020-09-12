@@ -2,6 +2,7 @@
 
 #include "qemu/osdep.h"
 #include "chardev/char-fe.h"
+#include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 

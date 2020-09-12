@@ -1,6 +1,8 @@
 /* QEMU model of the Sony BIONZ timer block */
 
 #include "qemu/osdep.h"
+#include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 #include "sysemu/sysemu.h"

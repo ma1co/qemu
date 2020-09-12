@@ -1,6 +1,7 @@
 /* QEMU model of the Sony hardware lz77 decompressor (ldec) */
 
 #include "qemu/osdep.h"
+#include "hw/hw.h"
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 #include "qemu/lz77.h"

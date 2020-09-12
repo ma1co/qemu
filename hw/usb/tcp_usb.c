@@ -20,6 +20,7 @@
 #include "qemu/osdep.h"
 #include "hw/usb.h"
 #include "hw/usb/tcp_usb.h"
+#include "qemu/main-loop.h"
 #include "qemu/sockets.h"
 #include "sysemu/sysemu.h"
 

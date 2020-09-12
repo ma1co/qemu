@@ -1,5 +1,6 @@
 /* Similar to the generic loader, but adds a read-only memory region */
 #include "qemu/osdep.h"
+#include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
 #include "qapi/error.h"
 #include "sysemu/dma.h"

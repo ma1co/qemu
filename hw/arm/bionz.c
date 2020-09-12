@@ -8,10 +8,13 @@
 #include "hw/char/pl011.h"
 #include "hw/cpu/a9mpcore.h"
 #include "hw/cpu/arm11mpcore.h"
+#include "hw/hw.h"
+#include "hw/irq.h"
 #include "hw/loader.h"
 #include "hw/sd/sdhci.h"
 #include "qapi/error.h"
 #include "sysemu/block-backend.h"
+#include "sysemu/reset.h"
 #include "sysemu/sysemu.h"
 
 //////////////////////////// CXD4108 ////////////////////////////

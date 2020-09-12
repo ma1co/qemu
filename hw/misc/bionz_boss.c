@@ -2,6 +2,7 @@
 
 #include "qemu/osdep.h"
 #include "exec/address-spaces.h"
+#include "hw/irq.h"
 #include "hw/sysbus.h"
 #include "qapi/error.h"
 #include "qemu/log.h"
