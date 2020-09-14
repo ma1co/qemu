@@ -27,7 +27,7 @@ typedef struct MenoState {
     MemoryRegion fwram;
     qemu_irq intr;
 
-    void *blk;
+    char *blk_name;
 
     uint32_t csr;
     uint32_t poll_mode;
@@ -63,6 +63,7 @@ static void meno_nand_read(MenoState *s, uint32_t args_ptr, uint32_t offset, uin
     uint32_t size;
     void *buffer;
     int i;
+    BlockBackend *blk = s->blk_name ? blk_by_name(s->blk_name) : NULL;
 
     cpu_physical_memory_read(PHYS_ADDR(args_ptr), &args, sizeof(args));
     offset += (args.block * NAND_SECTORS_PER_BLOCK + args.sector) * sector_size;
@@ -72,7 +73,7 @@ static void meno_nand_read(MenoState *s, uint32_t args_ptr, uint32_t offset, uin
         cpu_physical_memory_read(PHYS_ADDR(args.size_ptr + i * sizeof(size)), &size, sizeof(size));
 
         buffer = g_malloc(size);
-        if (s->blk && blk_pread((BlockBackend *) s->blk, offset, buffer, size) < 0) {
+        if (blk && blk_pread(blk, offset, buffer, size) < 0) {
             hw_error("%s: Cannot read block device\n", __func__);
         }
         cpu_physical_memory_write(PHYS_ADDR(buffer_ptr), buffer, size);
@@ -89,6 +90,7 @@ static void meno_nand_lz_read(MenoState *s, uint32_t args_ptr)
     unsigned int src_size, dst_size, off;
     unsigned char *src_buffer, *dst_buffer, *src, *dst;
     int i, res;
+    BlockBackend *blk = s->blk_name ? blk_by_name(s->blk_name) : NULL;
 
     cpu_physical_memory_read(PHYS_ADDR(args_ptr), &args, sizeof(args));
 
@@ -108,7 +110,7 @@ static void meno_nand_lz_read(MenoState *s, uint32_t args_ptr)
         cpu_physical_memory_read(PHYS_ADDR(args.sector_ptr + i * sizeof(sector)), &sector, sizeof(sector));
         cpu_physical_memory_read(PHYS_ADDR(args.num_sector_ptr + i * sizeof(num_sector)), &num_sector, sizeof(num_sector));
         off = (block * NAND_SECTORS_PER_BLOCK + sector) * NAND_SECTOR_SIZE;
-        if (s->blk && blk_pread((BlockBackend *) s->blk, off, src, num_sector * NAND_SECTOR_SIZE) < 0) {
+        if (blk && blk_pread(blk, off, src, num_sector * NAND_SECTOR_SIZE) < 0) {
             hw_error("%s: Cannot read block device\n", __func__);
         }
         src += num_sector * NAND_SECTOR_SIZE;
@@ -240,7 +242,7 @@ static void meno_realize(DeviceState *dev, Error **errp)
 }
 
 static Property meno_properties[] = {
-    DEFINE_PROP_PTR("drive_ptr", MenoState, blk),
+    DEFINE_PROP_STRING("drive_name", MenoState, blk_name),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -249,7 +251,7 @@ static void meno_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = meno_realize;
     dc->reset = meno_reset;
-    dc->props = meno_properties;
+    device_class_set_props(dc, meno_properties);
 }
 
 static const TypeInfo meno_info = {

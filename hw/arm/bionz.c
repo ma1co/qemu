@@ -679,7 +679,9 @@ static void cxd4132_init(MachineState *machine)
     }
 
     dev = qdev_create(NULL, "bionz_meno");
-    qdev_prop_set_ptr(dev, "drive_ptr", s->drive);
+    if (s->drive) {
+        qdev_prop_set_string(dev, "drive_name", blk_name(s->drive));
+    }
     qdev_init_nofail(dev);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_MENO_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_MENO - CXD4132_IRQ_OFFSET]);

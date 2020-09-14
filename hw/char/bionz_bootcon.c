@@ -52,7 +52,7 @@ static void bootcon_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = bootcon_realize;
-    dc->props = bootcon_properties;
+    device_class_set_props(dc, bootcon_properties);
 }
 
 static const TypeInfo bootcon_info = {

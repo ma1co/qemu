@@ -285,7 +285,7 @@ static void gpio_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = gpio_realize;
     dc->reset = gpio_reset;
-    dc->props = gpio_properties;
+    device_class_set_props(dc, gpio_properties);
 }
 
 static const TypeInfo gpio_info = {

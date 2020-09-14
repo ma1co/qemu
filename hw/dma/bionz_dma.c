@@ -348,7 +348,7 @@ static void dma_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = dma_realize;
-    dc->props = dma_properties;
+    device_class_set_props(dc, dma_properties);
     dc->reset = dma_reset;
 }
 

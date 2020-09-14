@@ -189,7 +189,7 @@ static void hwtimer_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = hwtimer_realize;
     dc->reset = hwtimer_reset;
-    dc->props = hwtimer_properties;
+    device_class_set_props(dc, hwtimer_properties);
 }
 
 static const TypeInfo hwtimer_info = {

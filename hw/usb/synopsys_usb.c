@@ -506,7 +506,7 @@ static void synopsys_usb_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = synopsys_usb_realize;
     dc->reset = synopsys_usb_reset;
-    dc->props = synopsys_usb_properties;
+    device_class_set_props(dc, synopsys_usb_properties);
 }
 
 static const TypeInfo synopsys_usb_info = {

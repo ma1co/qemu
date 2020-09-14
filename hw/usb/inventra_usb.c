@@ -565,7 +565,7 @@ static void inventra_usb_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = inventra_usb_realize;
     dc->reset = inventra_usb_reset;
-    dc->props = inventra_usb_properties;
+    device_class_set_props(dc, inventra_usb_properties);
 }
 
 static const TypeInfo inventra_usb_info = {

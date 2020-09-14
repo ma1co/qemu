@@ -406,7 +406,7 @@ static void nand_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = nand_realize;
     dc->reset = nand_reset;
-    dc->props = nand_properties;
+    device_class_set_props(dc, nand_properties);
 }
 
 static const TypeInfo nand_info = {

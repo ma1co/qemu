@@ -44,7 +44,7 @@ static void generic_rom_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = generic_rom_realize;
-    dc->props = generic_rom_props;
+    device_class_set_props(dc, generic_rom_props);
 }
 
 static TypeInfo generic_rom_info = {

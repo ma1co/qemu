@@ -42,7 +42,7 @@ typedef struct BossState {
 
 typedef struct BossCPUClass {
     ARMCPUClass parent_class;
-    void (*parent_reset)(CPUState *s);
+    void (*parent_reset)(DeviceState *dev);
 } BossCPUClass;
 
 static void boss_update_irq(BossState *s)
@@ -250,22 +250,21 @@ static void boss_realize(DeviceState *dev, Error **errp)
     sysbus_init_irq(sbd, &s->irq_ext);
 }
 
-static void boss_cpu_reset(CPUState *s)
+static void boss_cpu_reset(DeviceState *dev)
 {
-    BossCPUClass *bcc = BIONZ_BOSS_CPU_GET_CLASS(s);
+    CPUState *s = CPU(dev);
+    BossCPUClass *bcc = BIONZ_BOSS_CPU_GET_CLASS(dev);
 
     uint32_t ir = s->interrupt_request;
-    bcc->parent_reset(s);
+    bcc->parent_reset(dev);
     s->interrupt_request = ir;
 }
 
 static void boss_cpu_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     BossCPUClass *bcc = BIONZ_BOSS_CPU_CLASS(klass);
-    CPUClass *cc = CPU_CLASS(bcc);
-
-    bcc->parent_reset = cc->reset;
-    cc->reset = boss_cpu_reset;
+    device_class_set_parent_reset(dc, boss_cpu_reset, &bcc->parent_reset);
 }
 
 static const TypeInfo boss_cpu_info = {

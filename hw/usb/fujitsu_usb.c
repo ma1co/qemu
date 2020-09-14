@@ -534,7 +534,7 @@ static void fujitsu_usb_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = fujitsu_usb_realize;
     dc->reset = fujitsu_usb_reset;
-    dc->props = fujitsu_usb_properties;
+    device_class_set_props(dc, fujitsu_usb_properties);
 }
 
 static const TypeInfo fujitsu_usb_info = {
