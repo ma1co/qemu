@@ -228,11 +228,11 @@ static void boss_realize(DeviceState *dev, Error **errp)
     memory_region_add_subregion(&s->container, 0, &s->system_memory_alias);
 
     object_initialize(&s->cpu, sizeof(s->cpu), TYPE_BIONZ_BOSS_CPU);
-    object_property_set_bool(OBJECT(&s->cpu), false, "has_el3", &error_fatal);
-    object_property_set_int(OBJECT(&s->cpu), BOSS_CPUID, "mp-affinity", &error_fatal);
-    object_property_set_bool(OBJECT(&s->cpu), true, "start-powered-off", &error_fatal);
-    object_property_set_link(OBJECT(&s->cpu), OBJECT(&s->container), "memory", &error_fatal);
-    qdev_init_nofail(DEVICE(&s->cpu));
+    object_property_set_bool(OBJECT(&s->cpu), "has_el3", false, &error_fatal);
+    object_property_set_int(OBJECT(&s->cpu), "mp-affinity", BOSS_CPUID, &error_fatal);
+    object_property_set_bool(OBJECT(&s->cpu), "start-powered-off", true, &error_fatal);
+    object_property_set_link(OBJECT(&s->cpu), "memory", OBJECT(&s->container), &error_fatal);
+    qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
 
     memory_region_init_ram(&s->sram, OBJECT(dev), TYPE_BIONZ_BOSS ".sram", 0x4000, &error_fatal);
     sysbus_init_mmio(sbd, &s->sram);
