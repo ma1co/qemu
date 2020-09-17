@@ -269,7 +269,7 @@ static void boss_cpu_class_init(ObjectClass *klass, void *data)
 
 static const TypeInfo boss_cpu_info = {
     .name          = TYPE_BIONZ_BOSS_CPU,
-    .parent        = ARM_CPU_TYPE_NAME("cortex-a9"),// not sure
+    .parent        = ARM_CPU_TYPE_NAME("cortex-a5"),// not sure
     .class_size    = sizeof(BossCPUClass),
     .class_init    = boss_cpu_class_init,
 };

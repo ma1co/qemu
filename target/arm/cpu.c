@@ -1985,6 +1985,42 @@ static void cortex_a9_initfn(Object *obj)
     define_arm_cp_regs(cpu, cortexa9_cp_reginfo);
 }
 
+static void cortex_a5_initfn(Object *obj)
+{
+    ARMCPU *cpu = ARM_CPU(obj);
+
+    cpu->dtb_compatible = "arm,cortex-a5";
+    set_feature(&cpu->env, ARM_FEATURE_V7);
+    set_feature(&cpu->env, ARM_FEATURE_NEON);
+    set_feature(&cpu->env, ARM_FEATURE_THUMB2EE);
+    set_feature(&cpu->env, ARM_FEATURE_EL3);
+    set_feature(&cpu->env, ARM_FEATURE_V7MP);
+    set_feature(&cpu->env, ARM_FEATURE_CBAR);
+    cpu->midr = 0x410fc051;
+    cpu->reset_fpsid = 0x41023051;
+    cpu->isar.mvfr0 = 0x10110221;
+    cpu->isar.mvfr1 = 0x11000011;
+    cpu->ctr = 0x80038003;
+    cpu->reset_sctlr = 0x00c50078;
+    cpu->id_pfr0 = 0x1031;
+    cpu->id_pfr1 = 0x11;
+    cpu->isar.id_dfr0 = 0x000;
+    cpu->id_afr0 = 0;
+    cpu->isar.id_mmfr0 = 0x00100003;
+    cpu->isar.id_mmfr1 = 0x40000000;
+    cpu->isar.id_mmfr2 = 0x01230000;
+    cpu->isar.id_mmfr3 = 0x00002211;
+    cpu->isar.id_isar0 = 0x00101111;
+    cpu->isar.id_isar1 = 0x13112111;
+    cpu->isar.id_isar2 = 0x21232041;
+    cpu->isar.id_isar3 = 0x11112131;
+    cpu->isar.id_isar4 = 0x00111142;
+    cpu->isar.dbgdidr = 0x1203f001;
+    cpu->clidr = (1 << 27) | (1 << 24) | (1 << 21) | 3;
+    cpu->ccsidr[0] = 0xe00fe019; /* 16k L1 dcache. */
+    cpu->ccsidr[1] = 0x200fe019; /* 16k L1 icache. */
+}
+
 #ifndef CONFIG_USER_ONLY
 static uint64_t a15_l2ctlr_read(CPUARMState *env, const ARMCPRegInfo *ri)
 {
@@ -2168,6 +2204,7 @@ static void arm_max_initfn(Object *obj)
 
 static const ARMCPUInfo arm_cpus[] = {
 #if !defined(CONFIG_USER_ONLY) || !defined(TARGET_AARCH64)
+    { .name = "cortex-a5",   .initfn = cortex_a5_initfn },
     { .name = "cortex-a7",   .initfn = cortex_a7_initfn },
     { .name = "cortex-a8",   .initfn = cortex_a8_initfn },
     { .name = "cortex-a9",   .initfn = cortex_a9_initfn },

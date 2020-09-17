@@ -854,8 +854,6 @@ static void cxd90045_init(MachineState *machine)
 
     object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
     object_property_set_bool(OBJECT(&s->cpu), "has_el3", false, &error_fatal);
-    ARM_CPU(&s->cpu)->isar.mvfr0 = 0x10110221;
-    ARM_CPU(&s->cpu)->isar.mvfr1 = 0x11000011;
     qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
 
     mem = g_new(MemoryRegion, 1);
@@ -1046,7 +1044,7 @@ static void cxd90014_class_init(ObjectClass *klass, void *data)
 
     mc->desc = "Sony BIONZ CXD90014";
     mc->init = cxd90014_init;
-    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a9");
+    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a5");
     mc->max_cpus = 2;
     mc->default_cpus = 2;// main + boss
     mc->ignore_memory_transaction_failures = true;
@@ -1071,7 +1069,7 @@ static void cxd90045_class_init(ObjectClass *klass, void *data)
 
     mc->desc = "Sony BIONZ CXD90045";
     mc->init = cxd90045_init;
-    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a9");
+    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a5");
     mc->ignore_memory_transaction_failures = true;
 }
 
