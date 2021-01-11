@@ -505,6 +505,7 @@ typedef struct CPUARMState {
         uint64_t tfsr_el[4]; /* tfsre0_el1 is index 0.  */
         uint64_t gcr_el1;
         uint64_t rgsr_el1;
+        uint32_t tcmtr;
     } cp15;
 
     struct {
@@ -922,6 +923,7 @@ struct ARMCPU {
     uint32_t reset_fpsid;
     uint32_t ctr;
     uint32_t reset_sctlr;
+    uint32_t tcmtr;
     uint32_t id_pfr0;
     uint32_t id_pfr1;
     uint64_t pmceid0;

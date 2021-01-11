@@ -7905,7 +7905,8 @@ void register_cp_regs_for_features(ARMCPU *cpu)
               .cp = 15, .crn = 0, .crm = 0, .opc1 = 0, .opc2 = 2,
               .access = PL1_R,
               .accessfn = access_aa32_tid1,
-              .type = ARM_CP_CONST, .resetvalue = 0 },
+              .fieldoffset = offsetof(CPUARMState, cp15.tcmtr),
+              .resetvalue = cpu->tcmtr },
             REGINFO_SENTINEL
         };
         /* TLBTR is specific to VMSA */

@@ -15,6 +15,7 @@
 #include "qapi/error.h"
 #include "sysemu/block-backend.h"
 #include "sysemu/sysemu.h"
+#include "target/arm/arm-tcm.h"
 
 //////////////////////////// CXD4108 ////////////////////////////
 #define CXD4108_NAND_BASE 0x00000000
@@ -358,7 +359,7 @@ static void cxd4108_init(MachineState *machine)
 {
     DriveInfo *dinfo;
     BlockBackend *drive;
-    MemoryRegion *mem;
+    MemoryRegion *mem, *container;
     DeviceState *dev;
     Object *cpu;
     qemu_irq irq[32][16];
@@ -373,6 +374,15 @@ static void cxd4108_init(MachineState *machine)
         object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
         if (i != 0) {
             object_property_set_bool(cpu, "start-powered-off", true, &error_fatal);
+
+            container = g_new(MemoryRegion, 1);
+            memory_region_init(container, NULL, "container", UINT64_MAX);
+            mem = g_new(MemoryRegion, 1);
+            memory_region_init_alias(mem, NULL, "sysmem", get_system_memory(), 0, UINT64_MAX);
+            memory_region_add_subregion(container, 0, mem);
+            object_property_set_link(cpu, "memory", OBJECT(container), &error_fatal);
+            ARM_CPU(cpu)->tcmtr = 0x10001;
+            arm_tcm_init(ARM_CPU(cpu), g_new(arm_tcm_mem, 1));
         }
         qdev_realize(DEVICE(cpu), NULL, &error_fatal);
 
