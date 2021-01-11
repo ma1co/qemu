@@ -109,7 +109,7 @@ static const struct MemoryRegionOps boss_io_ops = {
 static void boss_update_power(BossState *s)
 {
     if (s->enable) {
-        arm_set_cpu_on(BOSS_CPUID, BOSS_SRAM_BASE, 0, arm_highest_el(&s->cpu.env), false);
+        arm_set_cpu_on_and_reset(BOSS_CPUID);
     } else {
         arm_set_cpu_off(BOSS_CPUID);
     }
