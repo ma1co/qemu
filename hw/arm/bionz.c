@@ -14,7 +14,6 @@
 #include "hw/sd/sdhci.h"
 #include "qapi/error.h"
 #include "sysemu/block-backend.h"
-#include "sysemu/reset.h"
 #include "sysemu/sysemu.h"
 
 //////////////////////////// CXD4108 ////////////////////////////
@@ -220,23 +219,6 @@
 #define NAND_SECTOR_SIZE 0x200
 #define NAND_PAGE_SIZE 0x1000
 
-#define TYPE_CXD "cxd"
-#define CXD(obj) OBJECT_CHECK(CxdState, (obj), TYPE_CXD)
-
-typedef struct CxdState {
-    MachineState parent_obj;
-    ARMCPU cpu;
-    BlockBackend *drive;
-    hwaddr loader_base;
-} CxdState;
-
-static void cxd_reset(void *opaque)
-{
-    CxdState *s = CXD(opaque);
-    cpu_reset(CPU(&s->cpu));
-    cpu_set_pc(CPU(&s->cpu), s->loader_base);
-}
-
 static hwaddr cxd_init_loader2(BlockBackend *drive)
 {
     char boot_block[NAND_SECTOR_SIZE];
@@ -359,21 +341,36 @@ static void cxd_add_const_reg(const char *name, hwaddr base, uint32_t value)
     memory_region_add_subregion(get_system_memory(), base, mem);
 }
 
+static void cxd_write_bootloader(hwaddr base, hwaddr target)
+{
+    int i;
+    uint32_t loader[] = {
+        0xe51ff004, // ldr pc, [pc, #-4]
+        target,
+    };
+    for (i = 0; i < ARRAY_SIZE(loader); i++) {
+        loader[i] = tswap32(loader[i]);
+    }
+    rom_add_blob_fixed("bootloader", loader, sizeof(loader), base);
+}
+
 static void cxd4108_init(MachineState *machine)
 {
-    CxdState *s = CXD(machine);
     DriveInfo *dinfo;
+    BlockBackend *drive;
     MemoryRegion *mem;
     DeviceState *dev;
+    Object *cpu;
     qemu_irq irq[32][16];
     qemu_irq gpio_irq[16];
     int i, j;
 
     dinfo = drive_get(IF_MTD, 0, 0);
-    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
+    drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
-    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
-    qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
+    cpu = object_new(machine->cpu_type);
+    object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
+    qdev_realize(DEVICE(cpu), NULL, &error_fatal);
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "ddr", CXD4108_DDR_SIZE, &error_fatal);
@@ -391,7 +388,7 @@ static void cxd4108_init(MachineState *machine)
     dev = qdev_new("bionz_intc");
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_INTC_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
     for (i = 0; i < 32; i++) {
         for (j = 0; j < 16; j++) {
             irq[i][j] = qdev_get_gpio_in(dev, i * 16 + j);
@@ -425,7 +422,7 @@ static void cxd4108_init(MachineState *machine)
 
     dev = qdev_new("onenand");
     qdev_prop_set_int32(dev, "shift", 1);
-    qdev_prop_set_drive(dev, "drive", s->drive);
+    qdev_prop_set_drive(dev, "drive", drive);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio_irq[CXD4108_IRQ_GPIO_NAND]);
@@ -461,36 +458,35 @@ static void cxd4108_init(MachineState *machine)
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD4108_DDR_BASE + CXD4108_TEXT_OFFSET, CXD4108_DDR_SIZE - CXD4108_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD4108_DDR_BASE + CXD4108_INITRD_OFFSET, CXD4108_DDR_SIZE - CXD4108_INITRD_OFFSET);
-        s->loader_base = CXD4108_DDR_BASE + CXD4108_TEXT_OFFSET;
+        cxd_write_bootloader(CXD4108_BOOTROM_BASE, CXD4108_DDR_BASE + CXD4108_TEXT_OFFSET);
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD4108_BOOTROM_BASE, CXD4108_BOOTROM_SIZE);
-        s->loader_base = CXD4108_BOOTROM_BASE;
-    } else if (s->drive) {
-        s->loader_base = cxd_init_loader2(s->drive);
+    } else if (drive) {
+        cxd_write_bootloader(CXD4108_BOOTROM_BASE, cxd_init_loader2(drive));
     }
 
     cxd_add_const_reg("miscctrl_mode", CXD4108_MISCCTRL_BASE, 0x101);
 
     cxd_add_const_reg("sdc_para4", CXD4108_SDC_BASE + 0xc, 0x80000000);
-
-    qemu_register_reset(cxd_reset, s);
 }
 
 static void cxd4115_init(MachineState *machine)
 {
-    CxdState *s = CXD(machine);
     DriveInfo *dinfo;
+    BlockBackend *drive;
     MemoryRegion *mem;
     DeviceState *dev;
+    Object *cpu;
     qemu_irq irq[CXD4115_NUM_IRQ - CXD4115_IRQ_OFFSET];
     qemu_irq gpio_irq[24];
     int i, j, k;
 
     dinfo = drive_get(IF_MTD, 0, 0);
-    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
+    drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
-    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
-    qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
+    cpu = object_new(machine->cpu_type);
+    object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
+    qdev_realize(DEVICE(cpu), NULL, &error_fatal);
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "ddr", CXD4115_DDR_SIZE, &error_fatal);
@@ -512,7 +508,7 @@ static void cxd4115_init(MachineState *machine)
     qdev_prop_set_uint32(DEVICE(&ARM11MPCORE_PRIV(dev)->wdtimer), "freq", 156e6);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_MPCORE_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
     for (i = 0; i < CXD4115_NUM_IRQ - CXD4115_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
     }
@@ -538,7 +534,7 @@ static void cxd4115_init(MachineState *machine)
     dev = qdev_new("onenand");
     qdev_prop_set_uint16(dev, "manufacturer_id", NAND_MFR_SAMSUNG);
     qdev_prop_set_int32(dev, "shift", 1);
-    qdev_prop_set_drive(dev, "drive", s->drive);
+    qdev_prop_set_drive(dev, "drive", drive);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4115_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio_irq[CXD4115_IRQ_GPIO_NAND]);
@@ -590,35 +586,34 @@ static void cxd4115_init(MachineState *machine)
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD4115_DDR_BASE + CXD4115_TEXT_OFFSET, CXD4115_DDR_SIZE - CXD4115_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD4115_DDR_BASE + CXD4115_INITRD_OFFSET, CXD4115_DDR_SIZE - CXD4115_INITRD_OFFSET);
-        s->loader_base = CXD4115_DDR_BASE + CXD4115_TEXT_OFFSET;
+        cxd_write_bootloader(CXD4115_BOOTROM_BASE, CXD4115_DDR_BASE + CXD4115_TEXT_OFFSET);
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD4115_BOOTROM_BASE, CXD4115_BOOTROM_SIZE);
-        s->loader_base = CXD4115_BOOTROM_BASE;
-    } else if (s->drive) {
-        s->loader_base = cxd_init_loader2(s->drive);
+    } else if (drive) {
+        cxd_write_bootloader(CXD4115_BOOTROM_BASE, cxd_init_loader2(drive));
         uint32_t typeid = 1;
         rom_add_blob_fixed("typeid", &typeid, sizeof(typeid), CXD4115_SRAM_BASE + CXD4115_TYPEID_OFFSET);
     }
 
     cxd_add_const_reg("ona_reset", CXD4115_ONA_BASE, 1);
-
-    qemu_register_reset(cxd_reset, s);
 }
 
 static void cxd4132_init(MachineState *machine)
 {
-    CxdState *s = CXD(machine);
     DriveInfo *dinfo;
+    BlockBackend *drive;
     MemoryRegion *mem;
     DeviceState *dev;
+    Object *cpu;
     qemu_irq irq[CXD4132_NUM_IRQ - CXD4132_IRQ_OFFSET];
     int i;
 
     dinfo = drive_get(IF_MTD, 0, 0);
-    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
+    drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
-    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
-    qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
+    cpu = object_new(machine->cpu_type);
+    object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
+    qdev_realize(DEVICE(cpu), NULL, &error_fatal);
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "ddr", CXD4132_DDR_SIZE, &error_fatal);
@@ -638,7 +633,7 @@ static void cxd4132_init(MachineState *machine)
     qdev_prop_set_uint32(dev, "num-irq", CXD4132_NUM_IRQ);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_MPCORE_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
     for (i = 0; i < CXD4132_NUM_IRQ - CXD4132_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
     }
@@ -654,7 +649,7 @@ static void cxd4132_init(MachineState *machine)
     dev = qdev_new("onenand");
     qdev_prop_set_uint16(dev, "manufacturer_id", NAND_MFR_SAMSUNG);
     qdev_prop_set_int32(dev, "shift", 1);
-    qdev_prop_set_drive(dev, "drive", s->drive);
+    qdev_prop_set_drive(dev, "drive", drive);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4132_IRQ_NAND - CXD4132_IRQ_OFFSET]);
@@ -679,8 +674,8 @@ static void cxd4132_init(MachineState *machine)
     }
 
     dev = qdev_new("bionz_meno");
-    if (s->drive) {
-        qdev_prop_set_string(dev, "drive_name", blk_name(s->drive));
+    if (drive) {
+        qdev_prop_set_string(dev, "drive_name", blk_name(drive));
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4132_MENO_BASE);
@@ -710,36 +705,35 @@ static void cxd4132_init(MachineState *machine)
         load_image_targphys(machine->kernel_filename, CXD4132_DDR_BASE + CXD4132_TEXT_OFFSET, CXD4132_DDR_SIZE - CXD4132_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD4132_DDR_BASE + CXD4132_INITRD_OFFSET, CXD4132_DDR_SIZE - CXD4132_INITRD_OFFSET);
         cxd_init_cmdline(CXD4132_CMDLINE, machine->kernel_cmdline, CXD4132_DDR_BASE + CXD4132_CMDLINE_OFFSET);
-        s->loader_base = CXD4132_DDR_BASE + CXD4132_TEXT_OFFSET;
+        cxd_write_bootloader(CXD4132_BOOTROM_BASE, CXD4132_DDR_BASE + CXD4132_TEXT_OFFSET);
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD4132_BOOTROM_BASE, CXD4132_BOOTROM_SIZE);
-        s->loader_base = CXD4132_BOOTROM_BASE;
-    } else if (s->drive) {
-        s->loader_base = cxd_init_loader2(s->drive);
+    } else if (drive) {
+        cxd_write_bootloader(CXD4132_BOOTROM_BASE, cxd_init_loader2(drive));
     }
 
     cxd_add_const_reg("miscctrl_readdone", CXD4132_MISCCTRL_BASE(1), 1);
     cxd_add_const_reg("miscctrl_typeid", CXD4132_MISCCTRL_BASE(2), 0x301);
-
-    qemu_register_reset(cxd_reset, s);
 }
 
 static void cxd90014_init(MachineState *machine)
 {
-    CxdState *s = CXD(machine);
     DriveInfo *dinfo;
+    BlockBackend *drive;
     MemoryRegion *mem;
     DeviceState *dev;
+    Object *cpu;
     qemu_irq irq[CXD90014_NUM_IRQ - CXD90014_IRQ_OFFSET];
     qemu_irq boss_irq;
     int i;
 
     dinfo = drive_get(IF_MTD, 0, 0);
-    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
+    drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
-    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
-    object_property_set_bool(OBJECT(&s->cpu), "has_el3", false, &error_fatal);
-    qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
+    cpu = object_new(machine->cpu_type);
+    object_property_set_bool(cpu, "has_el3", false, &error_fatal);
+    object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
+    qdev_realize(DEVICE(cpu), NULL, &error_fatal);
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "ddr", CXD90014_DDR_SIZE, &error_fatal);
@@ -759,7 +753,7 @@ static void cxd90014_init(MachineState *machine)
     qdev_prop_set_uint32(dev, "num-irq", CXD90014_NUM_IRQ);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_MPCORE_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
     for (i = 0; i < CXD90014_NUM_IRQ - CXD90014_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
     }
@@ -781,7 +775,7 @@ static void cxd90014_init(MachineState *machine)
     }
 
     dev = qdev_new("bionz_nand");
-    qdev_prop_set_drive(dev, "drive", s->drive);
+    qdev_prop_set_drive(dev, "drive", drive);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90014_NAND_REG_BASE);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD90014_NAND_DATA_BASE);
@@ -821,12 +815,11 @@ static void cxd90014_init(MachineState *machine)
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET, CXD90014_DDR_SIZE - CXD90014_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD90014_DDR_BASE + CXD90014_INITRD_OFFSET, CXD90014_DDR_SIZE - CXD90014_INITRD_OFFSET);
-        s->loader_base = CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET;
+        cxd_write_bootloader(CXD90014_BOOTROM_BASE, CXD90014_DDR_BASE + CXD90014_TEXT_OFFSET);
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD90014_BOOTROM_BASE, CXD90014_BOOTROM_SIZE);
-        s->loader_base = CXD90014_BOOTROM_BASE;
-    } else if (s->drive) {
-        s->loader_base = cxd90014_init_loader2(s->drive);
+    } else if (drive) {
+        cxd_write_bootloader(CXD90014_BOOTROM_BASE, cxd90014_init_loader2(drive));
     }
 
     cxd_add_const_reg("miscctrl_typeid", CXD90014_MISCCTRL_BASE(0), 0x500);
@@ -835,26 +828,26 @@ static void cxd90014_init(MachineState *machine)
     cxd_add_const_reg("ddmc_ctl_int_status", CXD90014_DDMC_BASE + 0x128, 0x10);
 
     cxd_add_const_reg("fusb_otg_usb_id_ext", CXD90014_USB_OTG_BASE + 0x10, 2);
-
-    qemu_register_reset(cxd_reset, s);
 }
 
 static void cxd90045_init(MachineState *machine)
 {
-    CxdState *s = CXD(machine);
     DriveInfo *dinfo;
+    BlockBackend *drive;
     MemoryRegion *mem;
     DeviceState *dev;
+    Object *cpu;
     BusState *bus;
     qemu_irq irq[CXD90045_NUM_IRQ - CXD90045_IRQ_OFFSET];
     int i;
 
     dinfo = drive_get(IF_MTD, 0, 0);
-    s->drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
+    drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
-    object_initialize(&s->cpu, sizeof(s->cpu), machine->cpu_type);
-    object_property_set_bool(OBJECT(&s->cpu), "has_el3", false, &error_fatal);
-    qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
+    cpu = object_new(machine->cpu_type);
+    object_property_set_bool(cpu, "has_el3", false, &error_fatal);
+    object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
+    qdev_realize(DEVICE(cpu), NULL, &error_fatal);
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "ddr0", CXD90045_DDR0_SIZE, &error_fatal);
@@ -878,7 +871,7 @@ static void cxd90045_init(MachineState *machine)
     qdev_prop_set_uint32(dev, "num-irq", CXD90045_NUM_IRQ);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD90045_MPCORE_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
     for (i = 0; i < CXD90045_NUM_IRQ - CXD90045_IRQ_OFFSET; i++) {
         irq[i] = qdev_get_gpio_in(dev, i);
     }
@@ -907,7 +900,7 @@ static void cxd90045_init(MachineState *machine)
     qdev_prop_set_bit(dev, "emmc", true);
     qdev_prop_set_bit(dev, "high_capacity", true);
     qdev_prop_set_uint32(dev, "boot_size", 0x40000);
-    qdev_prop_set_drive(dev, "drive", s->drive);
+    qdev_prop_set_drive(dev, "drive", drive);
     qdev_realize_and_unref(dev, bus, &error_fatal);
 
     for (i = 0; i < CXD90045_NUM_UART; i++) {
@@ -933,12 +926,11 @@ static void cxd90045_init(MachineState *machine)
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD90045_DDR0_BASE + CXD90045_TEXT_OFFSET, CXD90045_DDR0_SIZE - CXD90045_TEXT_OFFSET);
         load_image_targphys(machine->initrd_filename, CXD90045_DDR0_BASE + CXD90045_INITRD_OFFSET, CXD90045_DDR0_SIZE - CXD90045_INITRD_OFFSET);
-        s->loader_base = CXD90045_DDR0_BASE + CXD90045_TEXT_OFFSET;
+        cxd_write_bootloader(CXD90045_BOOTROM_BASE, CXD90045_DDR0_BASE + CXD90045_TEXT_OFFSET);
     } else if (bios_name) {
         load_image_targphys(bios_name, CXD90045_BOOTROM_BASE, CXD90045_BOOTROM_SIZE);
-        s->loader_base = CXD90045_BOOTROM_BASE;
-    } else if (s->drive) {
-        s->loader_base = cxd90045_init_loader2(s->drive);
+    } else if (drive) {
+        cxd_write_bootloader(CXD90045_BOOTROM_BASE, cxd90045_init_loader2(drive));
     }
 
     cxd_add_const_reg("miscctrl_mode", CXD90045_MISCCTRL_BASE(1), 0x28);
@@ -951,97 +943,40 @@ static void cxd90045_init(MachineState *machine)
 
     cxd_add_const_reg("unknown0", 0xf2908008, 1);
     cxd_add_const_reg("unknown1", 0xf290c008, 1);
-
-    qemu_register_reset(cxd_reset, s);
 }
 
-static const TypeInfo cxd_info = {
-    .name          = TYPE_CXD,
-    .parent        = TYPE_MACHINE,
-    .abstract      = true,
-    .instance_size = sizeof(CxdState),
-};
-
-static void cxd_register_type(void)
+static void cxd4108_machine_init(MachineClass *mc)
 {
-    type_register_static(&cxd_info);
-}
-
-type_init(cxd_register_type)
-
-static void cxd4108_class_init(ObjectClass *klass, void *data)
-{
-    MachineClass *mc = MACHINE_CLASS(klass);
-
     mc->desc = "Sony BIONZ CXD4108";
     mc->init = cxd4108_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm926");
     mc->ignore_memory_transaction_failures = true;
 }
 
-static const TypeInfo cxd4108_info = {
-    .name          = MACHINE_TYPE_NAME("cxd4108"),
-    .parent        = TYPE_CXD,
-    .class_init    = cxd4108_class_init,
-};
+DEFINE_MACHINE("cxd4108", cxd4108_machine_init)
 
-static void cxd4108_register_type(void)
+static void cxd4115_machine_init(MachineClass *mc)
 {
-    type_register_static(&cxd4108_info);
-}
-
-type_init(cxd4108_register_type)
-
-static void cxd4115_class_init(ObjectClass *klass, void *data)
-{
-    MachineClass *mc = MACHINE_CLASS(klass);
-
     mc->desc = "Sony BIONZ CXD4115";
     mc->init = cxd4115_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm11mpcore");
     mc->ignore_memory_transaction_failures = true;
 }
 
-static const TypeInfo cxd4115_info = {
-    .name          = MACHINE_TYPE_NAME("cxd4115"),
-    .parent        = TYPE_CXD,
-    .class_init    = cxd4115_class_init,
-};
+DEFINE_MACHINE("cxd4115", cxd4115_machine_init)
 
-static void cxd4115_register_type(void)
+static void cxd4132_machine_init(MachineClass *mc)
 {
-    type_register_static(&cxd4115_info);
-}
-
-type_init(cxd4115_register_type)
-
-static void cxd4132_class_init(ObjectClass *klass, void *data)
-{
-    MachineClass *mc = MACHINE_CLASS(klass);
-
     mc->desc = "Sony BIONZ CXD4132";
     mc->init = cxd4132_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm11mpcore");
     mc->ignore_memory_transaction_failures = true;
 }
 
-static const TypeInfo cxd4132_info = {
-    .name          = MACHINE_TYPE_NAME("cxd4132"),
-    .parent        = TYPE_CXD,
-    .class_init    = cxd4132_class_init,
-};
+DEFINE_MACHINE("cxd4132", cxd4132_machine_init)
 
-static void cxd4132_register_type(void)
+static void cxd90014_machine_init(MachineClass *mc)
 {
-    type_register_static(&cxd4132_info);
-}
-
-type_init(cxd4132_register_type)
-
-static void cxd90014_class_init(ObjectClass *klass, void *data)
-{
-    MachineClass *mc = MACHINE_CLASS(klass);
-
     mc->desc = "Sony BIONZ CXD90014";
     mc->init = cxd90014_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a5");
@@ -1050,38 +985,14 @@ static void cxd90014_class_init(ObjectClass *klass, void *data)
     mc->ignore_memory_transaction_failures = true;
 }
 
-static const TypeInfo cxd90014_info = {
-    .name          = MACHINE_TYPE_NAME("cxd90014"),
-    .parent        = TYPE_CXD,
-    .class_init    = cxd90014_class_init,
-};
+DEFINE_MACHINE("cxd90014", cxd90014_machine_init)
 
-static void cxd90014_register_type(void)
+static void cxd90045_machine_init(MachineClass *mc)
 {
-    type_register_static(&cxd90014_info);
-}
-
-type_init(cxd90014_register_type)
-
-static void cxd90045_class_init(ObjectClass *klass, void *data)
-{
-    MachineClass *mc = MACHINE_CLASS(klass);
-
     mc->desc = "Sony BIONZ CXD90045";
     mc->init = cxd90045_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a5");
     mc->ignore_memory_transaction_failures = true;
 }
 
-static const TypeInfo cxd90045_info = {
-    .name          = MACHINE_TYPE_NAME("cxd90045"),
-    .parent        = TYPE_CXD,
-    .class_init    = cxd90045_class_init,
-};
-
-static void cxd90045_register_type(void)
-{
-    type_register_static(&cxd90045_info);
-}
-
-type_init(cxd90045_register_type)
+DEFINE_MACHINE("cxd90045", cxd90045_machine_init)
