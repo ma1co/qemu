@@ -28,7 +28,7 @@
 #define CXD4108_NUM_HWTIMER 4
 #define CXD4108_SIO_BASE(i) (0x76100000 + (i) * 0x100000)
 #define CXD4108_NUM_SIO 4
-#define CXD4108_INTC_BASE 0x76500000
+#define CXD4108_INTC_BASE(i) (0x76500000 + (i) * 0x100000)
 #define CXD4108_GPIO_BASE(i) (0x76710000 + (i) * 0x10000)
 #define CXD4108_NUM_GPIO 6
 #define CXD4108_GPIOEASY_BASE 0x76780000
@@ -363,14 +363,33 @@ static void cxd4108_init(MachineState *machine)
     Object *cpu;
     qemu_irq irq[32][16];
     qemu_irq gpio_irq[16];
-    int i, j;
+    int i, j, k;
 
     dinfo = drive_get(IF_MTD, 0, 0);
     drive = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
 
-    cpu = object_new(machine->cpu_type);
-    object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
-    qdev_realize(DEVICE(cpu), NULL, &error_fatal);
+    for (i = 0; i < machine->smp.cpus; i++) {
+        cpu = object_new(machine->cpu_type);
+        object_property_set_bool(cpu, "reset-hivecs", true, &error_fatal);
+        if (i != 0) {
+            object_property_set_bool(cpu, "start-powered-off", true, &error_fatal);
+        }
+        qdev_realize(DEVICE(cpu), NULL, &error_fatal);
+
+        dev = qdev_new("bionz_intc");
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_INTC_BASE(i));
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
+        for (j = 0; j < 32; j++) {
+            for (k = 0; k < 16; k++) {
+                if (i == 0) {
+                    irq[j][k] = qdev_get_gpio_in(dev, j * 16 + k);
+                } else {
+                    irq[j][k] = qemu_irq_split(irq[j][k], qdev_get_gpio_in(dev, j * 16 + k));
+                }
+            }
+        }
+    }
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "ddr", CXD4108_DDR_SIZE, &error_fatal);
@@ -384,16 +403,6 @@ static void cxd4108_init(MachineState *machine)
     memory_region_init_ram(mem, NULL, "bootrom", CXD4108_BOOTROM_SIZE, &error_fatal);
     memory_region_set_readonly(mem, true);
     memory_region_add_subregion(get_system_memory(), CXD4108_BOOTROM_BASE, mem);
-
-    dev = qdev_new("bionz_intc");
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_INTC_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
-    for (i = 0; i < 32; i++) {
-        for (j = 0; j < 16; j++) {
-            irq[i][j] = qdev_get_gpio_in(dev, i * 16 + j);
-        }
-    }
 
     for (i = 0; i < CXD4108_NUM_GPIO; i++) {
         dev = qdev_new("bionz_gpio");
@@ -950,6 +959,8 @@ static void cxd4108_machine_init(MachineClass *mc)
     mc->desc = "Sony BIONZ CXD4108";
     mc->init = cxd4108_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm926");
+    mc->max_cpus = 2;
+    mc->default_cpus = 2;
     mc->ignore_memory_transaction_failures = true;
 }
 
