@@ -21,7 +21,8 @@
 #define CXD4108_NAND_BASE 0x00000000
 #define CXD4108_DDR_BASE 0x20000000
 #define CXD4108_DDR_SIZE 0x04000000
-#define CXD4108_DMA_BASE 0x70500000
+#define CXD4108_DMA_BASE(i) (0x70500000 - (i) * 0x100000)
+#define CXD4108_NUM_DMA 2
 #define CXD4108_DMA_NUM_CHANNEL 8
 #define CXD4108_UART_BASE(i) (0x74200000 + (i) * 0x100000)
 #define CXD4108_NUM_UART 3
@@ -447,12 +448,14 @@ static void cxd4108_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio_irq[CXD4108_IRQ_GPIO_NAND]);
 
-    dev = qdev_new("bionz_dma");
-    qdev_prop_set_uint32(dev, "version", 1);
-    qdev_prop_set_uint32(dev, "num-channel", CXD4108_DMA_NUM_CHANNEL);
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_DMA_BASE);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), CXD4108_DMA_NUM_CHANNEL, irq[CXD4108_IRQ_CH_DMA][0]);
+    for (i = 0; i < CXD4108_NUM_DMA; i++) {
+        dev = qdev_new("bionz_dma");
+        qdev_prop_set_uint32(dev, "version", 1);
+        qdev_prop_set_uint32(dev, "num-channel", CXD4108_DMA_NUM_CHANNEL);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_DMA_BASE(i));
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), CXD4108_DMA_NUM_CHANNEL, irq[CXD4108_IRQ_CH_DMA][i]);
+    }
 
     for (i = 0; i < CXD4108_NUM_UART; i++) {
         pl011_create(CXD4108_UART_BASE(i), irq[CXD4108_IRQ_CH_UART][i], serial_hd(i));
