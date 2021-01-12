@@ -21,6 +21,7 @@
 #define CXD4108_NAND_BASE 0x00000000
 #define CXD4108_DDR_BASE 0x20000000
 #define CXD4108_DDR_SIZE 0x04000000
+#define CXD4108_USB_BASE 0x70200000
 #define CXD4108_DMA_BASE(i) (0x70500000 - (i) * 0x100000)
 #define CXD4108_NUM_DMA 2
 #define CXD4108_DMA_NUM_CHANNEL 8
@@ -47,6 +48,7 @@
 #define CXD4108_IRQ_CH_TIMER 2
 #define CXD4108_IRQ_CH_DMA 3
 #define CXD4108_IRQ_CH_SIO 7
+#define CXD4108_IRQ_CH_USB 13
 #define CXD4108_IRQ_CH_GPIO 19
 #define CXD4108_IRQ_GPIO_NAND 15
 
@@ -447,6 +449,13 @@ static void cxd4108_init(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio_irq[CXD4108_IRQ_GPIO_NAND]);
+
+    dev = qdev_new("inventra_usb");
+    qdev_prop_set_bit(dev, "dynfifo", true);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_USB_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_USB][0]);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 1, irq[CXD4108_IRQ_CH_USB][1]);
 
     for (i = 0; i < CXD4108_NUM_DMA; i++) {
         dev = qdev_new("bionz_dma");

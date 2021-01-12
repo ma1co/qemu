@@ -26,8 +26,9 @@
 #define FIFO_BASE 0x20
 #define FIFO_SIZE 64
 
-#define CSR0   0x02
-#define COUNT0 0x08
+#define CSR0       0x02
+#define COUNT0     0x08
+#define CONFIGDATA 0x0f
 
 #define TXMAXP  0x00
 #define TXCSR   0x02
@@ -86,6 +87,7 @@ typedef struct InventraUsbState {
 
     uint32_t port;
     TcpUsbState tcp_usb_state;
+    bool dynfifo;
 
     uint8_t intrusb;
     uint8_t intrusbe;
@@ -262,6 +264,9 @@ static uint64_t inventra_usb_ep0_read(InventraUsbState *s, hwaddr offset, unsign
         switch (offset) {
             case COUNT0:
                 return fifo_count(&s->fifo0);
+
+            case CONFIGDATA:
+                return s->dynfifo << 2;
         }
     } else if (size == 2) {
         switch (offset) {
@@ -557,6 +562,7 @@ static void inventra_usb_realize(DeviceState *dev, Error **errp)
 
 static Property inventra_usb_properties[] = {
     DEFINE_PROP_UINT32("port", InventraUsbState, port, 7642),
+    DEFINE_PROP_BOOL("dynfifo", InventraUsbState, dynfifo, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 
