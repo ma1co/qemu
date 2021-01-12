@@ -1,2 +1,2 @@
 common-obj-$(CONFIG_STM32F2XX_ADC) += stm32f2xx_adc.o
-obj-$(CONFIG_BIONZ) += analog.o bionz_adc.o
+obj-$(CONFIG_BIONZ) += analog.o analog_voltage.o bionz_adc.o
