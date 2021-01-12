@@ -16,7 +16,7 @@ typedef struct PiroshkiState {
 static void piroshki_cmd(PiroshkiState *s)
 {
     memset(s->buf, 0, sizeof(s->buf));
-    s->buf[22] = parity(s->buf + 2, 19, 1);
+    s->buf[22] = parity(s->buf + 2, 19, 1) ^ 0x0f;
 }
 
 static uint32_t piroshki_transfer(SSISlave *dev, uint32_t value)

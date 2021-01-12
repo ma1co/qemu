@@ -16,8 +16,8 @@ typedef struct Mb89083State {
 static void mb89083_cmd(Mb89083State *s)
 {
     memset(s->buf, 0, sizeof(s->buf));
-    s->buf[126] = parity(s->buf, 126, 2);
-    s->buf[127] = parity(s->buf + 1, 126, 2);
+    s->buf[126] = parity(s->buf, 126, 2) ^ 0x0f;
+    s->buf[127] = parity(s->buf + 1, 126, 2) ^ 0x0f;
 }
 
 static uint32_t mb89083_transfer(SSISlave *dev, uint32_t value)

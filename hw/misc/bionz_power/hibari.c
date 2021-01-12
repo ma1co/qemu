@@ -16,7 +16,7 @@ typedef struct HibariState {
 static void hibari_cmd(HibariState *s)
 {
     memset(s->buf, 0, sizeof(s->buf));
-    s->buf[9] = parity(s->buf, 9, 1);
+    s->buf[9] = parity(s->buf, 9, 1) ^ 0x0f;
 }
 
 static uint32_t hibari_transfer(SSISlave *dev, uint32_t value)
