@@ -144,7 +144,7 @@ static void intc_write(void *opaque, hwaddr offset, uint64_t value, unsigned siz
     if (offset >= 0x100 && offset <= 0x500) {
         offset -= 0x100;
         intc_ch_write(s, offset >> 5, offset & 0x1f, value, size);
-    } else {
+    } else if (size == 4) {
         switch (offset) {
             case IRQ_SELECT:
                 s->reg_select = value;
@@ -164,6 +164,8 @@ static void intc_write(void *opaque, hwaddr offset, uint64_t value, unsigned siz
             default:
                 qemu_log_mask(LOG_UNIMP, "%s: unimplemented write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
         }
+    } else {
+        qemu_log_mask(LOG_UNIMP, "%s: unimplemented halfword write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
     }
 }
 
@@ -171,7 +173,7 @@ static const struct MemoryRegionOps intc_ops = {
     .read = intc_read,
     .write = intc_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
-    .valid.min_access_size = 4,
+    .valid.min_access_size = 2,
     .valid.max_access_size = 4,
 };
 

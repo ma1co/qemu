@@ -157,7 +157,7 @@ static const struct MemoryRegionOps gpiosys_ops = {
     .read = gpiosys_read,
     .write = gpiosys_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
-    .valid.min_access_size = 4,
+    .valid.min_access_size = 2,
     .valid.max_access_size = 4,
 };
 

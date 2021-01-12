@@ -83,6 +83,10 @@ static uint64_t gpio_read(void *opaque, hwaddr offset, unsigned size)
 {
     GpioState *s = BIONZ_GPIO(opaque);
 
+    if (s->num_gpio > 16 && size != 4) {
+        goto error;
+    }
+
     switch (s->version) {
     case 1:
         switch (offset) {
@@ -131,6 +135,7 @@ static uint64_t gpio_read(void *opaque, hwaddr offset, unsigned size)
         return 0;
     }
 
+error:
     qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
     return 0;
 }
@@ -138,6 +143,10 @@ static uint64_t gpio_read(void *opaque, hwaddr offset, unsigned size)
 static void gpio_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
     GpioState *s = BIONZ_GPIO(opaque);
+
+    if (s->num_gpio > 16 && size != 4) {
+        goto error;
+    }
 
     switch (s->version) {
     case 1:
@@ -241,7 +250,7 @@ static const struct MemoryRegionOps gpio_ops = {
     .read = gpio_read,
     .write = gpio_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
-    .valid.min_access_size = 4,
+    .valid.min_access_size = 2,
     .valid.max_access_size = 4,
 };
 
