@@ -14,12 +14,18 @@
 #define IRQ_ENABLE       0x10
 #define IRQ_ENABLE_SET   0x10
 #define IRQ_ENABLE_CLEAR 0x14
+#define INT_SOFT         0x18
+#define INT_SOFT_SET     0x18
+#define INT_SOFT_CLEAR   0x1c
 
 #define CH_RAW_STATUS    0x00
 #define CH_STATUS        0x04
 #define CH_ENABLE        0x08
 #define CH_ENABLE_SET    0x08
 #define CH_ENABLE_CLEAR  0x0c
+#define CH_SOFTINT       0x10
+#define CH_SOFTINT_SET   0x10
+#define CH_SOFTINT_CLEAR 0x14
 
 #define TYPE_BIONZ_INTC "bionz_intc"
 #define BIONZ_INTC(obj) OBJECT_CHECK(IntcState, (obj), TYPE_BIONZ_INTC)
@@ -33,18 +39,20 @@ typedef struct IntcState {
     uint32_t reg_status;
     uint32_t reg_select;
     uint32_t reg_enable;
+    uint32_t reg_softint;
 
     uint16_t ch_status[32];
     uint16_t ch_enable[32];
+    uint16_t ch_softint[32];
 } IntcState;
 
 static void intc_update(IntcState *s)
 {
     int i;
 
-    s->reg_status = 0;
+    s->reg_status = s->reg_softint;
     for (i = 0; i < 32; i++) {
-        if (s->ch_status[i] & s->ch_enable[i]) {
+        if ((s->ch_status[i] | s->ch_softint[i]) & s->ch_enable[i]) {
             s->reg_status |= (1 << i);
         }
     }
@@ -74,13 +82,16 @@ static uint64_t intc_ch_read(IntcState *s, unsigned ch, hwaddr offset, unsigned 
 {
     switch (offset) {
         case CH_RAW_STATUS:
-            return s->ch_status[ch];
+            return s->ch_status[ch] | s->ch_softint[ch];
 
         case CH_STATUS:
-            return s->ch_status[ch] & s->ch_enable[ch];
+            return (s->ch_status[ch] | s->ch_softint[ch]) & s->ch_enable[ch];
 
         case CH_ENABLE:
             return s->ch_enable[ch];
+
+        case CH_SOFTINT:
+            return s->ch_softint[ch];
 
         default:
             qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
@@ -98,6 +109,16 @@ static void intc_ch_write(IntcState *s, unsigned ch, hwaddr offset, uint64_t val
 
         case CH_ENABLE_CLEAR:
             s->ch_enable[ch] &= ~value;
+            intc_update(s);
+            break;
+
+        case CH_SOFTINT_SET:
+            s->ch_softint[ch] |= value;
+            intc_update(s);
+            break;
+
+        case CH_SOFTINT_CLEAR:
+            s->ch_softint[ch] &= ~value;
             intc_update(s);
             break;
 
@@ -130,6 +151,9 @@ static uint64_t intc_read(void *opaque, hwaddr offset, unsigned size)
             case IRQ_ENABLE:
                 return s->reg_enable;
 
+            case INT_SOFT:
+                return s->reg_softint;
+
             default:
                 qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
                 return 0;
@@ -161,6 +185,16 @@ static void intc_write(void *opaque, hwaddr offset, uint64_t value, unsigned siz
                 intc_update(s);
                 break;
 
+            case INT_SOFT_SET:
+                s->reg_softint |= value;
+                intc_update(s);
+                break;
+
+            case INT_SOFT_CLEAR:
+                s->reg_softint &= ~value;
+                intc_update(s);
+                break;
+
             default:
                 qemu_log_mask(LOG_UNIMP, "%s: unimplemented write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
         }
@@ -185,10 +219,12 @@ static void intc_reset(DeviceState *dev)
     s->reg_status = 0;
     s->reg_select = 0;
     s->reg_enable = 0xffffffff;
+    s->reg_softint = 0;
 
     for (i = 0; i < 32; i++) {
         s->ch_status[i] = 0;
         s->ch_enable[i] = 0xffff;
+        s->ch_softint[i] = 0;
     }
 }
 
