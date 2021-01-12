@@ -54,7 +54,7 @@ typedef struct GpioState {
 
 static uint32_t gpio_get_rdata(GpioState *s)
 {
-    return ~s->reg_dir & s->reg_inen & s->rdata;
+    return (~s->reg_dir & s->reg_inen & s->rdata) | (s->reg_dir & s->reg_wdata);
 }
 
 static void gpio_update(GpioState *s)
