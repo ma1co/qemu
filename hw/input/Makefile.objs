@@ -16,4 +16,4 @@ common-obj-$(CONFIG_MILKYMIST) += milkymist-softusb.o
 common-obj-$(CONFIG_PXA2XX) += pxa2xx_keypad.o
 common-obj-$(CONFIG_TSC210X) += tsc210x.o
 common-obj-$(CONFIG_LASIPS2) += lasips2.o
-obj-$(CONFIG_BIONZ) += bionz_buttons.o
+obj-$(CONFIG_BIONZ) += bionz_buttons.o bionz_touch_panel.o
