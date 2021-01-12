@@ -1,1 +1,1 @@
-obj-$(CONFIG_BIONZ) += ca.o checksum.o hibari.o mb89083.o piroshki.o
+obj-$(CONFIG_BIONZ) += ca.o checksum.o hibari.o mb89083.o piroshki.o upd79f.o
