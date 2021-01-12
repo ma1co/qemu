@@ -33,6 +33,7 @@
 #define CXD4108_SIO_BASE(i) (0x76100000 + (i) * 0x100000)
 #define CXD4108_NUM_SIO 4
 #define CXD4108_INTC_BASE(i) (0x76500000 + (i) * 0x100000)
+#define CXD4108_SYSV_BASE 0x76700000
 #define CXD4108_GPIO_BASE(i) (0x76710000 + (i) * 0x10000)
 #define CXD4108_NUM_GPIO 6
 #define CXD4108_GPIOEASY_BASE 0x76780000
@@ -52,6 +53,8 @@
 #define CXD4108_IRQ_CH_USB 13
 #define CXD4108_IRQ_CH_GPIO 19
 #define CXD4108_IRQ_CH_PL320 21
+#define CXD4108_IRQ_CH_IMGV 29
+#define CXD4108_IRQ_CH_SYSV 30
 #define CXD4108_IRQ_GPIO_NAND 15
 
 #define CXD4108_TEXT_OFFSET 0x00408000
@@ -496,6 +499,17 @@ static void cxd4108_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_SIO_BASE(i));
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_SIO_BASE(i) + 0x80000);
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_SIO][i]);
+    }
+
+    dev = qdev_new("bionz_sysv");
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_SYSV_BASE);
+    for (i = 0; i < 10; i++) {
+        if (i < 3) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_IMGV][i]);
+        } else {
+            sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_SYSV][i - 3]);
+        }
     }
 
     dev = qdev_new("arm_power");
