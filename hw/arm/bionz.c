@@ -39,6 +39,8 @@
 #define CXD4108_GPIOEASY_BASE 0x76780000
 #define CXD4108_GPIOSYS_BASE 0x76790000
 #define CXD4108_MISCCTRL_BASE 0x767b0000
+#define CXD4108_ADC_BASE(i) (0x76b00000 + (i + 1) * 0x100000)
+#define CXD4108_NUM_ADC 2
 #define CXD4108_CLKBLK_BASE 0x77400000
 #define CXD4108_SDC_BASE 0x78200000
 #define CXD4108_CPYFB_BASE 0x79700000
@@ -53,6 +55,7 @@
 #define CXD4108_IRQ_CH_DMA 3
 #define CXD4108_IRQ_CH_SIO 7
 #define CXD4108_IRQ_CH_USB 13
+#define CXD4108_IRQ_CH_ADC 17
 #define CXD4108_IRQ_CH_GPIO 19
 #define CXD4108_IRQ_CH_PL320 21
 #define CXD4108_IRQ_CH_VIDEO 23
@@ -513,6 +516,14 @@ static void cxd4108_init(MachineState *machine)
         } else {
             sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_SYSV][i - 3]);
         }
+    }
+
+    for (i = 0; i < CXD4108_NUM_ADC; i++) {
+        dev = qdev_new("bionz_adc");
+        dev->id = g_strdup_printf("adc%d", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_ADC_BASE(i));
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_ADC][i]);
     }
 
     dev = qdev_new("arm_power");
