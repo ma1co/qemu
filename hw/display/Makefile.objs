@@ -34,6 +34,7 @@ milkymist-tmu2.o-libs := $(X11_LIBS) $(OPENGL_LIBS)
 
 common-obj-$(CONFIG_OMAP) += omap_dss.o
 obj-$(CONFIG_OMAP) += omap_lcdc.o
+obj-$(CONFIG_BIONZ) += bionz_vip.o
 common-obj-$(CONFIG_PXA2XX) += pxa2xx_lcd.o
 common-obj-$(CONFIG_RASPI) += bcm2835_fb.o
 common-obj-$(CONFIG_SM501) += sm501.o
