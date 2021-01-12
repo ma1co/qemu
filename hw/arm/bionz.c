@@ -25,6 +25,7 @@
 #define CXD4108_DMA_BASE(i) (0x70500000 - (i) * 0x100000)
 #define CXD4108_NUM_DMA 2
 #define CXD4108_DMA_NUM_CHANNEL 8
+#define CXD4108_PL320_BASE 0x70800000
 #define CXD4108_UART_BASE(i) (0x74200000 + (i) * 0x100000)
 #define CXD4108_NUM_UART 3
 #define CXD4108_HWTIMER_BASE(i) (0x76000000 + (i) * 0x10000)
@@ -50,6 +51,7 @@
 #define CXD4108_IRQ_CH_SIO 7
 #define CXD4108_IRQ_CH_USB 13
 #define CXD4108_IRQ_CH_GPIO 19
+#define CXD4108_IRQ_CH_PL320 21
 #define CXD4108_IRQ_GPIO_NAND 15
 
 #define CXD4108_TEXT_OFFSET 0x00408000
@@ -391,6 +393,8 @@ static void cxd4108_init(MachineState *machine)
         qdev_realize(DEVICE(cpu), NULL, &error_fatal);
 
         dev = qdev_new("bionz_intc");
+        qdev_prop_set_uint32(dev, "len-enabled-channels", 1);
+        qdev_prop_set_uint8(dev, "enabled-channels[0]", CXD4108_IRQ_CH_PL320);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_INTC_BASE(i));
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
@@ -464,6 +468,13 @@ static void cxd4108_init(MachineState *machine)
         sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_DMA_BASE(i));
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), CXD4108_DMA_NUM_CHANNEL, irq[CXD4108_IRQ_CH_DMA][i]);
+    }
+
+    dev = qdev_new("pl320");
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_PL320_BASE);
+    for (i = 0; i < 2; i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_PL320][i]);
     }
 
     for (i = 0; i < CXD4108_NUM_UART; i++) {
