@@ -41,6 +41,7 @@
 #define CXD4108_MISCCTRL_BASE 0x767b0000
 #define CXD4108_CLKBLK_BASE 0x77400000
 #define CXD4108_SDC_BASE 0x78200000
+#define CXD4108_CPYFB_BASE 0x79700000
 #define CXD4108_VIP_BASE 0x79800000
 #define CXD4108_BOOTROM_BASE 0xffff0000
 #define CXD4108_BOOTROM_SIZE 0x00002000
@@ -518,6 +519,12 @@ static void cxd4108_init(MachineState *machine)
     qdev_prop_set_uint64(dev, "cpuid", 1);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_CLKBLK_BASE + 0x60);
+
+    dev = qdev_new("bionz_cpyfb");
+    qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_CPYFB_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_VIDEO][4]);
 
     dev = qdev_new("bionz_vip");
     qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
