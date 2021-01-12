@@ -21,6 +21,7 @@
 #define CXD4108_NAND_BASE 0x00000000
 #define CXD4108_DDR_BASE 0x20000000
 #define CXD4108_DDR_SIZE 0x04000000
+#define CXD4108_SDHCI_BASE 0x50000000
 #define CXD4108_USB_BASE 0x70200000
 #define CXD4108_DMA_BASE(i) (0x70500000 - (i) * 0x100000)
 #define CXD4108_NUM_DMA 2
@@ -54,6 +55,7 @@
 #define CXD4108_IRQ_CH_TIMER 2
 #define CXD4108_IRQ_CH_DMA 3
 #define CXD4108_IRQ_CH_SIO 7
+#define CXD4108_IRQ_CH_SDHCI 8
 #define CXD4108_IRQ_CH_USB 13
 #define CXD4108_IRQ_CH_ADC 17
 #define CXD4108_IRQ_CH_GPIO 19
@@ -377,6 +379,7 @@ static void cxd4108_init(MachineState *machine)
     MemoryRegion *mem, *container;
     DeviceState *dev;
     Object *cpu;
+    BusState *bus;
     qemu_irq irq[32][16];
     qemu_irq gpio_irq[16];
     int i, j, k;
@@ -462,6 +465,18 @@ static void cxd4108_init(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_NAND_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, gpio_irq[CXD4108_IRQ_GPIO_NAND]);
+
+    dev = qdev_new(TYPE_SYSBUS_SDHCI);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_SDHCI_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_SDHCI][0]);
+    bus = qdev_get_child_bus(dev, "sd-bus");
+
+    dinfo = drive_get(IF_MTD, 0, 1);
+    dev = qdev_new(TYPE_SD_CARD);
+    qdev_prop_set_bit(dev, "emmc", true);
+    qdev_prop_set_drive(dev, "drive", dinfo ? blk_by_legacy_dinfo(dinfo) : NULL);
+    qdev_realize_and_unref(dev, bus, &error_fatal);
 
     dev = qdev_new("inventra_usb");
     qdev_prop_set_bit(dev, "dynfifo", true);
