@@ -365,6 +365,7 @@ static void sdhci_send_command(SDHCIState *s)
 
     if (s->blksize && (s->cmdreg & SDHC_CMD_DATA_PRESENT)) {
         s->data_count = 0;
+        s->adma1_length = 4 * KiB;
         timer_mod(s->transfer_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + SDHC_TRANSFER_DELAY);
     }
 }
@@ -724,11 +725,7 @@ static void get_adma_description(SDHCIState *s, ADMADescr *dscr)
         dscr->addr = (hwaddr)(adma1 & 0xFFFFF000);
         dscr->attr = (uint8_t)extract32(adma1, 0, 7);
         dscr->incr = 4;
-        if ((dscr->attr & SDHC_ADMA_ATTR_ACT_MASK) == SDHC_ADMA_ATTR_SET_LEN) {
-            dscr->length = (uint16_t)extract32(adma1, 12, 16);
-        } else {
-            dscr->length = 4 * KiB;
-        }
+        dscr->length = (uint16_t)extract32(adma1, 12, 16);
         break;
     case SDHC_CTRL_ADMA2_64:
         dma_memory_read(s->dma_as, entry_addr, &dscr->attr, 1);
@@ -772,11 +769,14 @@ static void sdhci_do_adma(SDHCIState *s)
             return;
         }
 
-        length = dscr.length ? dscr.length : 64 * KiB;
+        if (SDHC_DMA_TYPE(s->hostctl1) == SDHC_CTRL_ADMA1_32) {
+            length = s->adma1_length;
+        } else {
+            length = dscr.length ? dscr.length : 64 * KiB;
+        }
 
         switch (dscr.attr & SDHC_ADMA_ATTR_ACT_MASK) {
         case SDHC_ADMA_ATTR_ACT_TRAN:  /* data transfer */
-
             if (s->trnmod & SDHC_TRNS_READ) {
                 while (length) {
                     if (s->data_count == 0) {
@@ -839,6 +839,10 @@ static void sdhci_do_adma(SDHCIState *s)
         case SDHC_ADMA_ATTR_ACT_LINK:   /* link to next descriptor table */
             s->admasysaddr = dscr.addr;
             trace_sdhci_adma("link", s->admasysaddr);
+            break;
+        case SDHC_ADMA_ATTR_SET_LEN:
+            s->adma1_length = dscr.length;
+            s->admasysaddr += dscr.incr;
             break;
         default:
             s->admasysaddr += dscr.incr;
