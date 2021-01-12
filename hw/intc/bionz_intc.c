@@ -4,6 +4,7 @@
 #include "qapi/error.h"
 #include "qemu/log.h"
 #include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
 #include "sysemu/sysemu.h"
 
@@ -35,6 +36,9 @@ typedef struct IntcState {
     MemoryRegion mmio;
     qemu_irq irq;
     qemu_irq fiq;
+
+    uint32_t num_enabled_channels;
+    uint8_t *enabled_channels;
 
     uint32_t reg_status;
     uint32_t reg_select;
@@ -218,13 +222,17 @@ static void intc_reset(DeviceState *dev)
 
     s->reg_status = 0;
     s->reg_select = 0;
-    s->reg_enable = 0xffffffff;
+    s->reg_enable = 0;
     s->reg_softint = 0;
 
     for (i = 0; i < 32; i++) {
         s->ch_status[i] = 0;
-        s->ch_enable[i] = 0xffff;
+        s->ch_enable[i] = 0;
         s->ch_softint[i] = 0;
+    }
+    for (i = 0; i < s->num_enabled_channels; i++) {
+        assert(s->enabled_channels[i] < 32);
+        s->ch_enable[s->enabled_channels[i]] = 0xffff;
     }
 }
 
@@ -241,10 +249,16 @@ static void intc_realize(DeviceState *dev, Error **errp)
     sysbus_init_irq(sbd, &s->fiq);
 }
 
+static Property intc_properties[] = {
+    DEFINE_PROP_ARRAY("enabled-channels", IntcState, num_enabled_channels, enabled_channels, qdev_prop_uint8, uint8_t),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void intc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = intc_realize;
+    device_class_set_props(dc, intc_properties);
     dc->reset = intc_reset;
 }
 
