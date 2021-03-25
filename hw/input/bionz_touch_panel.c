@@ -13,7 +13,7 @@
 #define YMIN 23
 #define YMAX 241
 
-#define DELAY_MS 180
+#define DELAY_MS 100
 
 #define TYPE_BIONZ_TOUCH_PANEL "bionz_touch_panel"
 #define BIONZ_TOUCH_PANEL(obj) OBJECT_CHECK(TouchPanelState, (obj), TYPE_BIONZ_TOUCH_PANEL)

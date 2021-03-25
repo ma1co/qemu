@@ -14,7 +14,7 @@
 #define R1 10000
 #define R2 2200
 
-#define DELAY_MS 180
+#define DELAY_MS 100
 
 #define TYPE_BIONZ_BUTTONS "bionz_buttons"
 #define BIONZ_BUTTONS(obj) OBJECT_CHECK(ButtonsState, (obj), TYPE_BIONZ_BUTTONS)

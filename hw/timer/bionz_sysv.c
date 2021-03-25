@@ -7,7 +7,7 @@
 #include "sysemu/sysemu.h"
 
 #define NUM_IRQ 10
-#define PERIOD_NS 33000000 // not sure...
+#define PERIOD_NS 16683333 // NTSC
 
 #define TYPE_BIONZ_SYSV "bionz_sysv"
 #define BIONZ_SYSV(obj) OBJECT_CHECK(SysvState, (obj), TYPE_BIONZ_SYSV)
@@ -19,8 +19,9 @@ typedef struct SysvState {
 
     QEMUTimer *timer;
 
-    uint32_t regs[3];
-    uint32_t reg_int;
+    uint32_t reg_en0;
+    uint32_t reg_en1;
+    uint32_t reg_intsts;
 } SysvState;
 
 static void sysv_set_timer(SysvState *s)
@@ -32,7 +33,7 @@ static void sysv_update(SysvState *s)
 {
     int i;
     for (i = 0; i < NUM_IRQ; i++) {
-        qemu_set_irq(s->irqs[i], (s->reg_int >> i) & 1);
+        qemu_set_irq(s->irqs[i], (s->reg_intsts >> i) & 1);
     }
 }
 
@@ -40,15 +41,26 @@ static void sysv_tick(void *opaque)
 {
     SysvState *s = BIONZ_SYSV(opaque);
 
-    s->reg_int |= s->regs[0] & s->regs[1] & s->regs[2];
+    s->reg_intsts |= s->reg_en0 & s->reg_en1 & 0b1001001;
     sysv_update(s);
     sysv_set_timer(s);
 }
 
 static uint64_t sysv_read(void *opaque, hwaddr offset, unsigned size)
 {
-    qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
-    return 0;
+    SysvState *s = BIONZ_SYSV(opaque);
+
+    switch (offset) {
+        case 0x18:
+            return s->reg_en0;
+
+        case 0x1c:
+            return s->reg_en1;
+
+        default:
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
+            return 0;
+    }
 }
 
 static void sysv_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
@@ -57,20 +69,16 @@ static void sysv_write(void *opaque, hwaddr offset, uint64_t value, unsigned siz
 
     switch (offset) {
         case 0x18:
-            s->regs[0] |= value;
+            s->reg_en0 = value;
             break;
 
         case 0x1c:
-            s->regs[1] |= value;
+            s->reg_en1 = value;
             break;
 
         case 0x24:
-            s->reg_int &= ~value;
+            s->reg_intsts &= ~value;
             sysv_update(s);
-            break;
-
-        case 0x28:
-            s->regs[2] |= value;
             break;
 
         default:
@@ -90,10 +98,9 @@ static void sysv_reset(DeviceState *dev)
 {
     SysvState *s = BIONZ_SYSV(dev);
 
-    s->regs[0] = 0;
-    s->regs[1] = 0;
-    s->regs[2] = 0;
-    s->reg_int = 0;
+    s->reg_en0 = 0;
+    s->reg_en1 = 0;
+    s->reg_intsts = 0;
 
     timer_del(s->timer);
     sysv_set_timer(s);
