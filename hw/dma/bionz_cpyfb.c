@@ -7,6 +7,8 @@
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 
+#define NUM_CHANNELS 3
+
 #define TYPE_BIONZ_CPYFB "bionz_cpyfb"
 #define BIONZ_CPYFB(obj) OBJECT_CHECK(CpyfbState, (obj), TYPE_BIONZ_CPYFB)
 
@@ -15,17 +17,20 @@ typedef struct CpyfbChannel {
     uint32_t data;
     uint32_t addr;
     uint32_t num_cpy;
-    uint32_t num_skip;
+    int32_t num_skip;
     uint32_t num_repeat;
 } CpyfbChannel;
 
 typedef struct CpyfbState {
     SysBusDevice parent_obj;
-    MemoryRegion mmio;
+    MemoryRegion mmio[2];
     qemu_irq irq;
 
     uint32_t mem_base;
-    CpyfbChannel channels[3];
+    CpyfbChannel channels[NUM_CHANNELS];
+
+    uint32_t reg_intsts;
+    uint32_t reg_inten;
 
     uint32_t reg_ctrl;
     uint32_t reg_alpha_low;
@@ -54,7 +59,7 @@ static uint16_t blend_pixel(uint16_t dst, uint16_t src, uint8_t alpha)
     return (ro << 12) | (go << 8) | (bo << 4) | ao;
 }
 
-static void cpyfb_fill_rect(unsigned int row_bytes, hwaddr dst, unsigned int width, unsigned int height, uint16_t rgba)
+static void cpyfb_fill_rect(int dst_stride, hwaddr dst, unsigned int width, unsigned int height, uint16_t rgba)
 {
     int i;
     uint16_t *buffer;
@@ -67,14 +72,14 @@ static void cpyfb_fill_rect(unsigned int row_bytes, hwaddr dst, unsigned int wid
 
         for (i = 0; i < height; i++) {
             cpu_physical_memory_write(dst, buffer, width * sizeof(uint16_t));
-            dst += row_bytes;
+            dst += dst_stride;
         }
 
         g_free(buffer);
     }
 }
 
-static void cpyfb_bit_blit(unsigned int src_row_bytes, hwaddr src, unsigned int dst_row_bytes, hwaddr dst, unsigned int width, unsigned int height)
+static void cpyfb_bit_blit(int src_stride, hwaddr src, int dst_stride, hwaddr dst, unsigned int width, unsigned int height)
 {
     int i;
     uint16_t *buffer;
@@ -84,14 +89,14 @@ static void cpyfb_bit_blit(unsigned int src_row_bytes, hwaddr src, unsigned int 
         for (i = 0; i < height; i++) {
             cpu_physical_memory_read(src, buffer, width * sizeof(uint16_t));
             cpu_physical_memory_write(dst, buffer, width * sizeof(uint16_t));
-            src += src_row_bytes;
-            dst += dst_row_bytes;
+            src += src_stride;
+            dst += dst_stride;
         }
         g_free(buffer);
     }
 }
 
-static void cpyfb_alpha_blend_blit_rgba(unsigned int src_row_bytes, hwaddr src, unsigned int dst_row_bytes, hwaddr dst, unsigned int width, unsigned int height, uint8_t alpha)
+static void cpyfb_alpha_blend_blit_rgba(int src_stride, hwaddr src, int dst_stride, hwaddr dst, unsigned int width, unsigned int height, uint8_t alpha)
 {
     int i, j;
     uint16_t *src_buffer, *dst_buffer;
@@ -106,26 +111,36 @@ static void cpyfb_alpha_blend_blit_rgba(unsigned int src_row_bytes, hwaddr src, 
                 dst_buffer[j] = blend_pixel(dst_buffer[j], src_buffer[j], alpha);
             }
             cpu_physical_memory_write(dst, dst_buffer, width * sizeof(uint16_t));
-            src += src_row_bytes;
-            dst += dst_row_bytes;
+            src += src_stride;
+            dst += dst_stride;
         }
         g_free(src_buffer);
         g_free(dst_buffer);
     }
 }
 
-static void cpyfb_alpha_blit_rgba(unsigned int src_row_bytes, hwaddr src, unsigned int dst_row_bytes, hwaddr dst, unsigned int width, unsigned int height)
+static void cpyfb_alpha_blit_rgba(int src_stride, hwaddr src, int dst_stride, hwaddr dst, unsigned int width, unsigned int height)
 {
-    cpyfb_alpha_blend_blit_rgba(src_row_bytes, src, dst_row_bytes, dst, width, height, 0xf);
+    cpyfb_alpha_blend_blit_rgba(src_stride, src, dst_stride, dst, width, height, 0xf);
+}
+
+static void cpyfb_update_irq(CpyfbState *s)
+{
+    qemu_set_irq(s->irq, !!(s->reg_inten & s->reg_intsts));
 }
 
 static void cpyfb_command(CpyfbState *s)
 {
     unsigned int i;
     CpyfbChannel *tmp, *src, *dst;
-    int ch_en = ((s->channels[1].ctrl & 1) << 2) | ((s->channels[2].ctrl & 1) << 1) | (s->channels[0].ctrl & 1);
+    int ch_en = 0;
+    for (i = 0; i < NUM_CHANNELS; i++) {
+        if (s->channels[i].ctrl & 1) {
+            ch_en |= (1 << i);
+        }
+    }
 
-    if (ch_en == 4 && s->channels[1].ctrl == 0x21) {
+    if (ch_en == 2 && s->channels[1].ctrl == 0x21) {
         dst = &s->channels[1];
         if ((dst->data >> 16) != (dst->data & 0xffff)) {
             hw_error("%s: invalid data: 0x%x\n", __func__, dst->data);
@@ -133,7 +148,7 @@ static void cpyfb_command(CpyfbState *s)
         cpyfb_fill_rect(dst->num_cpy + dst->num_skip, s->mem_base + dst->addr,
                         dst->num_cpy / 2, dst->num_repeat + 1,
                         dst->data & 0xffff);
-    } else if (ch_en == 5 && s->reg_ctrl == 0x11100001) {
+    } else if (ch_en == 3 && s->reg_ctrl == 0x11100001) {
         src = &s->channels[0];
         dst = &s->channels[1];
         if (src->num_cpy != dst->num_cpy || src->num_repeat != dst->num_repeat) {
@@ -168,16 +183,42 @@ static void cpyfb_command(CpyfbState *s)
         hw_error("%s: Unsupported command\n", __func__);
     }
 
-    for (i = 0; i < 3; i++) {
-        s->channels[i].ctrl &= ~1;
+    for (i = 0; i < NUM_CHANNELS; i++) {
+        if (s->channels[i].ctrl & 1) {
+            s->reg_intsts |= 1 << (i * 4);
+            s->channels[i].ctrl &= ~1;
+        }
     }
-    qemu_irq_raise(s->irq);
+    cpyfb_update_irq(s);
 }
 
 static uint64_t cpyfb_ch_read(CpyfbState *s, unsigned int ch, hwaddr offset, unsigned size)
 {
-    qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
-    return 0;
+    CpyfbChannel *channel = &s->channels[ch];
+
+    switch (offset) {
+        case 0x00:
+            return channel->ctrl;
+
+        case 0x0c:
+            return channel->data;
+
+        case 0x20:
+            return channel->addr;
+
+        case 0x24:
+            return channel->num_cpy;
+
+        case 0x28:
+            return channel->num_skip;
+
+        case 0x2c:
+            return channel->num_repeat;
+
+        default:
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
+            return 0;
+    }
 }
 
 static void cpyfb_ch_write(CpyfbState *s, unsigned int ch, hwaddr offset, uint64_t value, unsigned size)
@@ -221,11 +262,20 @@ static uint64_t cpyfb_read(void *opaque, hwaddr offset, unsigned size)
 {
     CpyfbState *s = BIONZ_CPYFB(opaque);
 
-    if (offset >= 0x200 && offset < 0x380) {
+    if (offset >= 0x200 && offset < (0x200 + NUM_CHANNELS * 0x80)) {
         return cpyfb_ch_read(s, (offset - 0x200) >> 7, offset & 0x7f, size);
     } else {
-        qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
-        return 0;
+        switch (offset) {
+            case 0:
+                return s->reg_intsts;
+
+            case 8:
+                return s->reg_inten;
+
+            default:
+                qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
+                return 0;
+        }
     }
 }
 
@@ -233,26 +283,18 @@ static void cpyfb_write(void *opaque, hwaddr offset, uint64_t value, unsigned si
 {
     CpyfbState *s = BIONZ_CPYFB(opaque);
 
-    if (offset >= 0x200 && offset < 0x380) {
+    if (offset >= 0x200 && offset < (0x200 + NUM_CHANNELS * 0x80)) {
         cpyfb_ch_write(s, (offset - 0x200) >> 7, offset & 0x7f, value, size);
     } else {
         switch (offset) {
             case 0:
-                if (value & 0x10) {
-                    qemu_irq_lower(s->irq);
-                }
+                s->reg_intsts &= ~value;
+                cpyfb_update_irq(s);
                 break;
 
-            case 0x80014:
-                s->reg_ctrl = value;
-                break;
-
-            case 0x80020:
-                s->reg_alpha_low = value;
-                break;
-
-            case 0x80024:
-                s->reg_alpha_high = value;
+            case 8:
+                s->reg_inten = value;
+                cpyfb_update_irq(s);
                 break;
 
             default:
@@ -261,9 +303,59 @@ static void cpyfb_write(void *opaque, hwaddr offset, uint64_t value, unsigned si
     }
 }
 
-static const struct MemoryRegionOps cpyfb_ops = {
+static uint64_t cpyfb_ctrl_read(void *opaque, hwaddr offset, unsigned size)
+{
+    CpyfbState *s = BIONZ_CPYFB(opaque);
+
+    switch (offset) {
+        case 0x14:
+            return s->reg_ctrl;
+
+        case 0x20:
+            return s->reg_alpha_low;
+
+        case 0x24:
+            return s->reg_alpha_high;
+
+        default:
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
+            return 0;
+    }
+}
+
+static void cpyfb_ctrl_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+{
+    CpyfbState *s = BIONZ_CPYFB(opaque);
+
+    switch (offset) {
+        case 0x14:
+            s->reg_ctrl = value;
+            break;
+
+        case 0x20:
+            s->reg_alpha_low = value;
+            break;
+
+        case 0x24:
+            s->reg_alpha_high = value;
+            break;
+
+        default:
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
+    }
+}
+
+static const struct MemoryRegionOps cpyfb_mmio0_ops = {
     .read = cpyfb_read,
     .write = cpyfb_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid.min_access_size = 4,
+    .valid.max_access_size = 4,
+};
+
+static const struct MemoryRegionOps cpyfb_mmio1_ops = {
+    .read = cpyfb_ctrl_read,
+    .write = cpyfb_ctrl_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
     .valid.min_access_size = 4,
     .valid.max_access_size = 4,
@@ -274,11 +366,14 @@ static void cpyfb_reset(DeviceState *dev)
     int i;
     CpyfbState *s = BIONZ_CPYFB(dev);
 
+    s->reg_intsts = 0;
+    s->reg_inten = 0;
+
     s->reg_ctrl = 0;
     s->reg_alpha_low = 0;
     s->reg_alpha_high = 0;
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < NUM_CHANNELS; i++) {
         s->channels[i].ctrl = 0;
         s->channels[i].data = 0;
         s->channels[i].addr = 0;
@@ -291,8 +386,13 @@ static void cpyfb_reset(DeviceState *dev)
 static void cpyfb_realize(DeviceState *dev, Error **errp)
 {
     CpyfbState *s = BIONZ_CPYFB(dev);
-    memory_region_init_io(&s->mmio, OBJECT(dev), &cpyfb_ops, s, TYPE_BIONZ_CPYFB, 0x100000);
-    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio);
+
+    memory_region_init_io(&s->mmio[0], OBJECT(dev), &cpyfb_mmio0_ops, s, TYPE_BIONZ_CPYFB ".mmio0", 0x1000);
+    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio[0]);
+
+    memory_region_init_io(&s->mmio[1], OBJECT(dev), &cpyfb_mmio1_ops, s, TYPE_BIONZ_CPYFB ".mmio1", 0x1000);
+    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio[1]);
+
     sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->irq);
 }
 

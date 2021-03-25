@@ -550,6 +550,7 @@ static void cxd4108_init(MachineState *machine)
     qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_CPYFB_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_CPYFB_BASE + 0x80000);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_VIDEO][4]);
 
     dev = qdev_new("bionz_vip");
