@@ -16,8 +16,10 @@ typedef struct SysvState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
     qemu_irq irqs[NUM_IRQ];
+    qemu_irq vsync;
 
     QEMUTimer *timer;
+    bool field;
 
     uint32_t reg_en0;
     uint32_t reg_en1;
@@ -41,8 +43,12 @@ static void sysv_tick(void *opaque)
 {
     SysvState *s = BIONZ_SYSV(opaque);
 
+    s->field = !s->field;
+    qemu_set_irq(s->vsync, s->field);
+
     s->reg_intsts |= s->reg_en0 & s->reg_en1 & 0b1001001;
     sysv_update(s);
+
     sysv_set_timer(s);
 }
 
@@ -98,6 +104,7 @@ static void sysv_reset(DeviceState *dev)
 {
     SysvState *s = BIONZ_SYSV(dev);
 
+    s->field = 0;
     s->reg_en0 = 0;
     s->reg_en1 = 0;
     s->reg_intsts = 0;
@@ -120,6 +127,7 @@ static void sysv_realize(DeviceState *dev, Error **errp)
     for (i = 0; i < NUM_IRQ; i++) {
         sysbus_init_irq(sbd, &s->irqs[i]);
     }
+    qdev_init_gpio_out(dev, &s->vsync, 1);
 }
 
 static void sysv_class_init(ObjectClass *klass, void *data)

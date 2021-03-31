@@ -376,12 +376,13 @@ static void cxd4108_init(MachineState *machine)
 {
     DriveInfo *dinfo;
     BlockBackend *drive;
-    MemoryRegion *mem, *container;
+    MemoryRegion *mem, *ddr, *container;
     DeviceState *dev;
     Object *cpu;
     BusState *bus;
     qemu_irq irq[32][16];
     qemu_irq gpio_irq[16];
+    qemu_irq vsync;
     int i, j, k;
 
     dinfo = drive_get(IF_MTD, 0, 0);
@@ -421,9 +422,9 @@ static void cxd4108_init(MachineState *machine)
         }
     }
 
-    mem = g_new(MemoryRegion, 1);
-    memory_region_init_ram(mem, NULL, "ddr", CXD4108_DDR_SIZE, &error_fatal);
-    memory_region_add_subregion(get_system_memory(), CXD4108_DDR_BASE, mem);
+    ddr = g_new(MemoryRegion, 1);
+    memory_region_init_ram(ddr, NULL, "ddr", CXD4108_DDR_SIZE, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), CXD4108_DDR_BASE, ddr);
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "sram", CXD4108_SRAM_SIZE, &error_fatal);
@@ -522,17 +523,6 @@ static void cxd4108_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_SIO][i]);
     }
 
-    dev = qdev_new("bionz_sysv");
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_SYSV_BASE);
-    for (i = 0; i < 10; i++) {
-        if (i < 3) {
-            sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_IMGV][i]);
-        } else {
-            sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_SYSV][i - 3]);
-        }
-    }
-
     for (i = 0; i < CXD4108_NUM_ADC; i++) {
         dev = qdev_new("bionz_adc");
         dev->id = g_strdup_printf("adc%d", i);
@@ -554,10 +544,25 @@ static void cxd4108_init(MachineState *machine)
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_VIDEO][4]);
 
     dev = qdev_new("bionz_vip");
-    qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
+    object_property_set_link(OBJECT(dev), "memory", OBJECT(ddr), &error_fatal);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_VIP_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_VIP_BASE + 0x800);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_VIDEO][0]);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 1, irq[CXD4108_IRQ_CH_VIDEO][1]);
+    vsync = qdev_get_gpio_in(dev, 0);
+
+    dev = qdev_new("bionz_sysv");
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_SYSV_BASE);
+    for (i = 0; i < 10; i++) {
+        if (i < 3) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_IMGV][i]);
+        } else {
+            sysbus_connect_irq(SYS_BUS_DEVICE(dev), i, irq[CXD4108_IRQ_CH_SYSV][i - 3]);
+        }
+    }
+    qdev_connect_gpio_out(dev, 0, vsync);
 
     if (machine->kernel_filename) {
         load_image_targphys(machine->kernel_filename, CXD4108_DDR_BASE + CXD4108_TEXT_OFFSET, CXD4108_DDR_SIZE - CXD4108_TEXT_OFFSET);
