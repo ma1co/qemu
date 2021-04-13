@@ -46,9 +46,9 @@ typedef struct VipState {
 
 static uint32_t ycbcr_to_argb8888(uint8_t y, uint8_t cb, uint8_t cr)
 {
-    uint8_t r = min(max(y + ((                       91881 * (cr - 0x80) + 0x8000) >> 16), 0), 0xff);
-    uint8_t g = min(max(y - (( 22554 * (cb - 0x80) + 46802 * (cr - 0x80) + 0x8000) >> 16), 0), 0xff);
-    uint8_t b = min(max(y + ((116130 * (cb - 0x80)                       + 0x8000) >> 16), 0), 0xff);
+    uint8_t r = MIN(MAX(y + ((                       91881 * (cr - 0x80) + 0x8000) >> 16), 0), 0xff);
+    uint8_t g = MIN(MAX(y - (( 22554 * (cb - 0x80) + 46802 * (cr - 0x80) + 0x8000) >> 16), 0), 0xff);
+    uint8_t b = MIN(MAX(y + ((116130 * (cb - 0x80)                       + 0x8000) >> 16), 0), 0xff);
     return (0xff << 24) | (r << 16) | (g << 8) | b;
 }
 
