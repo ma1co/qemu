@@ -54,7 +54,7 @@ static uint16_t blend_pixel(uint16_t dst, uint16_t src, uint8_t alpha)
     uint8_t ro = (rs * sc + rd * (0xf - sc)) / 0xf;
     uint8_t go = (gs * sc + gd * (0xf - sc)) / 0xf;
     uint8_t bo = (bs * sc + bd * (0xf - sc)) / 0xf;
-    uint8_t ao = (as * sc + ad * (0xf - sc)) / 0xf;
+    uint8_t ao = (0xf * sc + ad * (0xf - sc)) / 0xf;
 
     return (ro << 12) | (go << 8) | (bo << 4) | ao;
 }
