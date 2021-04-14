@@ -8,16 +8,39 @@
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 
+#define NUM_CHANNELS 3
+#define NUM_LAYERS 2
+
 #define WIDTH 320
 #define HEIGHT 240
-#define STRIDE (WIDTH * 2)
 
 #define TYPE_BIONZ_VIP "bionz_vip"
 #define BIONZ_VIP(obj) OBJECT_CHECK(VipState, (obj), TYPE_BIONZ_VIP)
 
+typedef enum VipFormat {
+    FORMAT_RGBA4444,
+    FORMAT_YCBCR422,
+    FORMAT_YCBCR422_DOWNSIZE,
+} VipFormat;
+
+const uint32_t vip_strides[] = {
+    [FORMAT_RGBA4444] = WIDTH * 2,
+    [FORMAT_YCBCR422] = WIDTH * 2,
+    [FORMAT_YCBCR422_DOWNSIZE] = WIDTH * 8,
+};
+
+typedef struct VipChannel {
+    uint32_t ctrl;
+    uint32_t addr;
+    uint32_t num_cpy;
+    uint32_t num_repeat;
+} VipChannel;
+
 typedef struct VipLayer {
     bool enable;
+    VipFormat format;
     uint32_t addr;
+    DirtyBitmapSnapshot *snap;
 } VipLayer;
 
 typedef struct VipState {
@@ -27,16 +50,13 @@ typedef struct VipState {
     QemuConsole *con;
 
     MemoryRegion *memory;
-    VipLayer layer;
+
+    VipChannel channels[NUM_CHANNELS];
+    VipLayer layers[NUM_LAYERS];
     uint32_t background;
 
     uint32_t reg_ch_intsts;
     uint32_t reg_ch_inten;
-
-    uint32_t reg_ctrl;
-    uint32_t reg_addr;
-    uint32_t reg_num_cpy;
-    uint32_t reg_num_repeat;
 
     uint32_t field;
     uint32_t reg_ctrl_intsts;
@@ -52,6 +72,15 @@ static uint32_t ycbcr_to_argb8888(uint8_t y, uint8_t cb, uint8_t cr)
     return (0xff << 24) | (r << 16) | (g << 8) | b;
 }
 
+static uint32_t ycbcr422_to_argb8888(uint32_t pix, bool off)
+{
+    uint8_t y1 = (pix >> 24) & 0xff;
+    uint8_t cr = (pix >> 16) & 0xff;
+    uint8_t y0 = (pix >>  8) & 0xff;
+    uint8_t cb =  pix        & 0xff;
+    return ycbcr_to_argb8888(off ? y1 : y0, cb, cr);
+}
+
 static uint32_t rgba4444_to_argb8888(uint16_t pix)
 {
     uint8_t r = (pix >> 12) & 0xf;
@@ -59,6 +88,24 @@ static uint32_t rgba4444_to_argb8888(uint16_t pix)
     uint8_t b = (pix >>  4) & 0xf;
     uint8_t a =  pix        & 0xf;
     return (a << 28) | (a << 24) | (r << 20) | (r << 16) | (g << 12) | (g << 8) | (b << 4) | b;
+}
+
+static uint32_t get_pixel(const void *src, VipFormat format, unsigned int x)
+{
+    switch (format) {
+        case FORMAT_RGBA4444:
+            return rgba4444_to_argb8888(*(uint16_t *) (src + x * 2));
+
+        case FORMAT_YCBCR422_DOWNSIZE:
+            x *= 2;
+            // fall-through
+
+        case FORMAT_YCBCR422:
+            return ycbcr422_to_argb8888(*(uint32_t *) (src + (x >> 1) * 4), x & 1);
+
+        default:
+            return 0;
+    }
 }
 
 static uint32_t blend_pixel(uint32_t dst, uint32_t src)
@@ -89,24 +136,34 @@ static void vip_update_irq(VipState *s)
 static void vip_draw(VipState *s, bool invalidate)
 {
     unsigned int x, y;
+    VipLayer *l;
     DisplaySurface *surface = qemu_console_surface(s->con);
     void *src = memory_region_get_ram_ptr(s->memory);
     uint32_t *dst = surface_data(surface);
-    DirtyBitmapSnapshot *snap = NULL;
     int first = -1, last = -1;
 
     assert(surface_format(surface) == PIXMAN_x8r8g8b8);
 
-    if (s->layer.enable) {
-        snap = memory_region_snapshot_and_clear_dirty(s->memory, s->layer.addr, HEIGHT * STRIDE, DIRTY_MEMORY_VGA);
+    for (l = &s->layers[0]; l < &s->layers[NUM_LAYERS]; l++) {
+        if (l->enable) {
+            l->snap = memory_region_snapshot_and_clear_dirty(s->memory, l->addr, HEIGHT * vip_strides[l->format], DIRTY_MEMORY_VGA);
+        }
     }
 
     for (y = 0; y < HEIGHT; y++) {
-        if (invalidate || (s->layer.enable && memory_region_snapshot_get_dirty(s->memory, snap, s->layer.addr + y * STRIDE, STRIDE))) {
+        bool update = invalidate;
+        for (l = &s->layers[0]; l < &s->layers[NUM_LAYERS]; l++) {
+            if (l->enable) {
+                update = update || memory_region_snapshot_get_dirty(s->memory, l->snap, l->addr + y * vip_strides[l->format], vip_strides[l->format]);
+            }
+        }
+        if (update) {
             for (x = 0; x < WIDTH; x++) {
                 dst[x] = s->background;
-                if (s->layer.enable) {
-                    dst[x] = blend_pixel(dst[x], rgba4444_to_argb8888(*(uint16_t *) (src + s->layer.addr + y * STRIDE + x * 2)));
+                for (l = &s->layers[0]; l < &s->layers[NUM_LAYERS]; l++) {
+                    if (l->enable) {
+                        dst[x] = blend_pixel(dst[x], get_pixel(src + l->addr + y * vip_strides[l->format], l->format, x));
+                    }
                 }
             }
             if (first < 0) {
@@ -117,7 +174,10 @@ static void vip_draw(VipState *s, bool invalidate)
         dst += WIDTH;
     }
 
-    g_free(snap);
+    for (l = &s->layers[0]; l < &s->layers[NUM_LAYERS]; l++) {
+        g_free(l->snap);
+        l->snap = NULL;
+    }
 
     if (first >= 0) {
         dpy_gfx_update(s->con, 0, first, WIDTH, last - first + 1);
@@ -126,6 +186,7 @@ static void vip_draw(VipState *s, bool invalidate)
 
 static void vip_update_display(VipState *s)
 {
+    unsigned int i;
     bool invalidate = false;
 
     uint32_t bg = (s->reg_bg >> 24) == 0x80 ? ycbcr_to_argb8888((s->reg_bg >> 16) & 0xff, (s->reg_bg >> 8) & 0xff, s->reg_bg & 0xff) : 0;
@@ -134,22 +195,31 @@ static void vip_update_display(VipState *s)
         invalidate = true;
     }
 
-    VipLayer layer = {0};
-    layer.enable = s->reg_ctrl & 1;
+    for (i = 0; i < NUM_LAYERS; i++) {
+        VipChannel *channel = &s->channels[2 * i];
+        VipLayer layer = {0};
+        layer.enable = channel->ctrl & 1;
 
-    if (layer.enable) {
-        if (s->reg_num_cpy != WIDTH * 2 || s->reg_num_repeat != HEIGHT - 1) {
-            hw_error("%s: Unsupported image format\n", __func__);
-        }
-        layer.addr = s->reg_addr;
-        if (layer.addr + HEIGHT * STRIDE > memory_region_size(s->memory)) {
-            layer = (VipLayer) {0};
-        }
-    }
+        if (layer.enable) {
+            if (channel->num_cpy == WIDTH * 2 && channel->num_repeat == HEIGHT - 1) {
+                layer.format = i ? FORMAT_RGBA4444 : FORMAT_YCBCR422;
+            } else if (!i && channel->num_cpy == WIDTH * 4 && channel->num_repeat == HEIGHT - 1) {
+                layer.format = FORMAT_YCBCR422_DOWNSIZE;
+            } else {
+                hw_error("%s: Unsupported image format\n", __func__);
+            }
 
-    if (memcmp(&layer, &s->layer, sizeof(layer))) {
-        s->layer = layer;
-        invalidate = true;
+            layer.addr = channel->addr;
+
+            if (layer.addr + vip_strides[layer.format] * HEIGHT > memory_region_size(s->memory)) {
+                layer = (VipLayer) {0};
+            }
+        }
+
+        if (memcmp(&layer, &s->layers[i], sizeof(layer))) {
+            s->layers[i] = layer;
+            invalidate = true;
+        }
     }
 
     vip_draw(s, invalidate);
@@ -157,6 +227,7 @@ static void vip_update_display(VipState *s)
 
 static void vip_vsync(void *opaque, int irq, int level)
 {
+    unsigned int i;
     VipState *s = BIONZ_VIP(opaque);
 
     if (level) {
@@ -166,40 +237,83 @@ static void vip_vsync(void *opaque, int irq, int level)
     s->field = level;
     s->reg_ctrl_intsts |= s->reg_ctrl_en & 0x100;
 
-    if (s->reg_ctrl & 1) {
-        s->reg_ctrl &= ~1;
-        s->reg_ch_intsts |= 0x100;
+    for (i = 0; i < NUM_CHANNELS; i++) {
+        if (s->channels[i].ctrl & 1) {
+            s->channels[i].ctrl &= ~1;
+            s->reg_ch_intsts |= 1 << (4 * i);
+        }
     }
 
     vip_update_irq(s);
+}
+
+static uint64_t vip_ch_read(VipState *s, unsigned int ch, hwaddr offset, unsigned size)
+{
+    VipChannel *channel = &s->channels[ch];
+
+    switch (offset) {
+        case 0x00:
+            return channel->ctrl;
+
+        case 0x20:
+            return channel->addr;
+
+        case 0x24:
+            return channel->num_cpy;
+
+        case 0x2c:
+            return channel->num_repeat;
+
+        default:
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
+            return 0;
+    }
+}
+
+static void vip_ch_write(VipState *s, unsigned int ch, hwaddr offset, uint64_t value, unsigned size)
+{
+    VipChannel *channel = &s->channels[ch];
+
+    switch (offset) {
+        case 0x00:
+            channel->ctrl = value;
+            break;
+
+        case 0x20:
+            channel->addr = value;
+            break;
+
+        case 0x24:
+            channel->num_cpy = value;
+            break;
+
+        case 0x2c:
+            channel->num_repeat = value;
+            break;
+
+        default:
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
+    }
 }
 
 static uint64_t vip_read(void *opaque, hwaddr offset, unsigned size)
 {
     VipState *s = BIONZ_VIP(opaque);
 
-    switch (offset) {
-        case 0:
-            return s->reg_ch_intsts;
+    if (offset >= 0x200 && offset < (0x200 + NUM_CHANNELS * 0x80)) {
+        return vip_ch_read(s, (offset - 0x200) >> 7, offset & 0x7f, size);
+    } else {
+        switch (offset) {
+            case 0:
+                return s->reg_ch_intsts;
 
-        case 8:
-            return s->reg_ch_inten;
+            case 8:
+                return s->reg_ch_inten;
 
-        case 0x300:
-            return s->reg_ctrl;
-
-        case 0x320:
-            return s->reg_addr;
-
-        case 0x324:
-            return s->reg_num_cpy;
-
-        case 0x32c:
-            return s->reg_num_repeat;
-
-        default:
-            qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
-            return 0;
+            default:
+                qemu_log_mask(LOG_UNIMP, "%s: unimplemented read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
+                return 0;
+        }
     }
 }
 
@@ -207,35 +321,23 @@ static void vip_write(void *opaque, hwaddr offset, uint64_t value, unsigned size
 {
     VipState *s = BIONZ_VIP(opaque);
 
-    switch (offset) {
-        case 0:
-            s->reg_ch_intsts &= ~value;
-            vip_update_irq(s);
-            break;
+    if (offset >= 0x200 && offset < (0x200 + NUM_CHANNELS * 0x80)) {
+        vip_ch_write(s, (offset - 0x200) >> 7, offset & 0x7f, value, size);
+    } else {
+        switch (offset) {
+            case 0:
+                s->reg_ch_intsts &= ~value;
+                vip_update_irq(s);
+                break;
 
-        case 8:
-            s->reg_ch_inten = value;
-            vip_update_irq(s);
-            break;
+            case 8:
+                s->reg_ch_inten = value;
+                vip_update_irq(s);
+                break;
 
-        case 0x300:
-            s->reg_ctrl = value;
-            break;
-
-        case 0x320:
-            s->reg_addr = value;
-            break;
-
-        case 0x324:
-            s->reg_num_cpy = value;
-            break;
-
-        case 0x32c:
-            s->reg_num_repeat = value;
-            break;
-
-        default:
-            qemu_log_mask(LOG_UNIMP, "%s: unimplemented write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
+            default:
+                qemu_log_mask(LOG_UNIMP, "%s: unimplemented write @ 0x%" HWADDR_PRIx ": 0x%" PRIx64 "\n", __func__, offset, value);
+        }
     }
 }
 
@@ -308,6 +410,7 @@ static const GraphicHwOps vip_gfx_ops = {};
 
 static void vip_reset(DeviceState *dev)
 {
+    unsigned int i;
     VipState *s = BIONZ_VIP(dev);
 
     s->reg_ch_intsts = 0;
@@ -318,12 +421,12 @@ static void vip_reset(DeviceState *dev)
     s->reg_ctrl_en = 0;
     s->reg_bg = 0;
 
-    s->reg_ctrl = 0;
-    s->reg_addr = 0;
-    s->reg_num_cpy = 0;
-    s->reg_num_repeat = 0;
-
-    s->layer = (VipLayer) {0};
+    for (i = 0; i < NUM_CHANNELS; i++) {
+        s->channels[i] = (VipChannel) {0};
+    }
+    for (i = 0; i < NUM_LAYERS; i++) {
+        s->layers[i] = (VipLayer) {0};
+    }
     s->background = 0;
 }
 
