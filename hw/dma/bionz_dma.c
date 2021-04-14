@@ -212,8 +212,31 @@ static void dma_run_all(DmaState *s)
 
 static uint64_t dma_ch_read(void *opaque, unsigned ch, hwaddr offset, unsigned size)
 {
-    qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
-    return 0;
+    DmaState *s = BIONZ_DMA(opaque);
+
+    switch (offset) {
+        case 0x00:
+            return s->regs[ch].src;
+
+        case 0x04:
+            return s->regs[ch].dst;
+
+        case 0x08:
+            return s->regs[ch].next_lli;
+
+        case 0x0c:
+            return s->regs[ch].ctrl;
+
+        case 0x10:
+            return s->conf_reg[ch];
+
+        case 0x14:
+            return s->lli_reg[ch];
+
+        default:
+            qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
+            return 0;
+    }
 }
 
 static void dma_ch_write(void *opaque, unsigned ch, hwaddr offset, uint64_t value, unsigned size)
