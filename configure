@@ -6581,6 +6581,15 @@ if test "$libudev" != "no" ; then
   fi
 fi
 
+##########################################
+# BIONZ libraries
+if $pkg_config libjpeg; then
+  libjpeg_libs=$($pkg_config --libs libjpeg)
+  libs_softmmu="$libs_softmmu $libjpeg_libs"
+else
+  feature_not_found "libjpeg" "Install libjpeg"
+fi
+
 # Now we've finished running tests it's OK to add -Werror to the compiler flags
 if test "$werror" = "yes"; then
     QEMU_CFLAGS="-Werror $QEMU_CFLAGS"

@@ -4,6 +4,10 @@ language: c
 compiler:
   - gcc
 cache: ccache
+addons:
+  apt:
+    packages:
+      - libjpeg-dev
 env:
   global:
     - SRC_DIR="."
