@@ -48,6 +48,7 @@
 #define CXD4108_RC_BASE 0x79300000
 #define CXD4108_CPYFB_BASE 0x79700000
 #define CXD4108_VIP_BASE 0x79800000
+#define CXD4108_DDR_ALIAS_BASE 0xa0000000
 #define CXD4108_BOOTROM_BASE 0xffff0000
 #define CXD4108_BOOTROM_SIZE 0x00002000
 #define CXD4108_SRAM_BASE 0xffff2000
@@ -428,6 +429,10 @@ static void cxd4108_init(MachineState *machine)
     ddr = g_new(MemoryRegion, 1);
     memory_region_init_ram(ddr, NULL, "ddr", CXD4108_DDR_SIZE, &error_fatal);
     memory_region_add_subregion(get_system_memory(), CXD4108_DDR_BASE, ddr);
+
+    mem = g_new(MemoryRegion, 1);
+    memory_region_init_alias(mem, NULL, "ddr.alias", ddr, 0, CXD4108_DDR_SIZE);
+    memory_region_add_subregion(get_system_memory(), CXD4108_DDR_ALIAS_BASE, mem);
 
     mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(mem, NULL, "sram", CXD4108_SRAM_SIZE, &error_fatal);
