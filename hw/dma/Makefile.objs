@@ -11,7 +11,7 @@ common-obj-$(CONFIG_STP2000) += sparc32_dma.o
 common-obj-$(CONFIG_XLNX_ZYNQMP_ARM) += xlnx_dpdma.o
 common-obj-$(CONFIG_XLNX_ZYNQMP_ARM) += xlnx-zdma.o
 
-obj-$(CONFIG_BIONZ) += bionz_cpyfb.o bionz_dma.o bionz_jpeg.o
+obj-$(CONFIG_BIONZ) += bionz_cpyfb.o bionz_dma.o bionz_jpeg.o bionz_rc.o
 common-obj-$(CONFIG_OMAP) += omap_dma.o soc_dma.o
 common-obj-$(CONFIG_PXA2XX) += pxa2xx_dma.o
 common-obj-$(CONFIG_RASPI) += bcm2835_dma.o
