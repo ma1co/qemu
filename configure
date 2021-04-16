@@ -6589,6 +6589,12 @@ if $pkg_config libjpeg; then
 else
   feature_not_found "libjpeg" "Install libjpeg"
 fi
+if $pkg_config mad; then
+  libmad_libs=$($pkg_config --libs mad)
+  libs_softmmu="$libs_softmmu $libmad_libs"
+else
+  feature_not_found "libmad" "Install libmad"
+fi
 
 # Now we've finished running tests it's OK to add -Werror to the compiler flags
 if test "$werror" = "yes"; then

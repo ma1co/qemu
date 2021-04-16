@@ -8,6 +8,7 @@ addons:
   apt:
     packages:
       - libjpeg-dev
+      - libmad0-dev
 env:
   global:
     - SRC_DIR="."
