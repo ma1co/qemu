@@ -82,10 +82,17 @@ QEMU_BUILD_BUG_ON(sizeof(JpegHeader) != 0xa9);
 
 #define JPEG_SEG(n, m) .marker={0xFF,(m)}, .size=cpu_to_be16(sizeof(((JpegHeader){}).n)-2)
 
+static void jpeg_error(j_common_ptr cinfo)
+{
+    char buffer[JMSG_LENGTH_MAX];
+    (*cinfo->err->format_message)(cinfo, buffer);
+    hw_error("%s: %s", __func__, buffer);
+}
+
 static void jpeg_decompress422(void *src, unsigned long src_size, hwaddr dst, int dst_stride, unsigned int scale)
 {
-    unsigned int width, height, comp, row, x, y;
-    const unsigned int num_rows = DCTSIZE / scale;
+    unsigned int comp, row, x, y;
+    const unsigned int dctsize = DCTSIZE / scale;
 
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
@@ -93,20 +100,22 @@ static void jpeg_decompress422(void *src, unsigned long src_size, hwaddr dst, in
     uint32_t *buffer;
 
     cinfo.err = jpeg_std_error(&jerr);
+    cinfo.err->error_exit = jpeg_error;
     jpeg_create_decompress(&cinfo);
     jpeg_mem_src(&cinfo, src, src_size);
     jpeg_read_header(&cinfo, true);
 
     assert(cinfo.num_components == 3);
     assert(cinfo.comp_info[0].h_samp_factor == 2);
-    assert(cinfo.comp_info[0].v_samp_factor == 1);
+    assert(cinfo.comp_info[0].v_samp_factor == 1 || cinfo.comp_info[0].v_samp_factor == 2);
     assert(cinfo.comp_info[1].h_samp_factor == 1);
     assert(cinfo.comp_info[1].v_samp_factor == 1);
     assert(cinfo.comp_info[2].h_samp_factor == 1);
     assert(cinfo.comp_info[2].v_samp_factor == 1);
 
-    width = cinfo.comp_info[0].width_in_blocks * num_rows;
-    height = cinfo.comp_info[0].height_in_blocks * num_rows;
+    if (cinfo.comp_info[0].v_samp_factor == 2 && scale != 1) {
+        hw_error("%s: scaling of 4:2:0 JPEGs not supported\n", __func__);
+    }
 
     cinfo.out_color_space = JCS_YCbCr;
     cinfo.scale_num = 1;
@@ -116,27 +125,27 @@ static void jpeg_decompress422(void *src, unsigned long src_size, hwaddr dst, in
 
     data = g_new(JSAMPARRAY, cinfo.num_components);
     for (comp = 0; comp < cinfo.num_components; comp++) {
-        data[comp] = g_new(JSAMPROW, num_rows);
-        for (row = 0; row < num_rows; row++) {
-            data[comp][row] = g_new(JSAMPLE, width / (comp ? 2 : 1));
+        data[comp] = g_new(JSAMPROW, dctsize * cinfo.comp_info[comp].v_samp_factor);
+        for (row = 0; row < dctsize * cinfo.comp_info[comp].v_samp_factor; row++) {
+            data[comp][row] = g_new(JSAMPLE, dctsize * cinfo.comp_info[comp].width_in_blocks);
         }
     }
-    buffer = g_new(uint32_t, width / 2);
+    buffer = g_new(uint32_t, cinfo.output_width / 2);
 
-    for (y = 0; y < height; y += num_rows) {
-        jpeg_read_raw_data(&cinfo, data, num_rows);
-        for (row = 0; row < num_rows; row++) {
-            for (x = 0; x < width / 2; x++) {
-                buffer[x] = (data[0][row][x*2+1] << 24) | (data[2][row][x] << 16) | (data[0][row][x*2] << 8) | data[1][row][x];
+    for (y = 0; y < cinfo.output_height; y += dctsize * cinfo.max_v_samp_factor) {
+        jpeg_read_raw_data(&cinfo, data, dctsize * cinfo.max_v_samp_factor);
+        for (row = 0; row < dctsize * cinfo.max_v_samp_factor; row++) {
+            for (x = 0; x < cinfo.output_width / 2; x++) {
+                buffer[x] = (data[0][row][x*2+1] << 24) | (data[2][row/cinfo.max_v_samp_factor][x] << 16) | (data[0][row][x*2] << 8) | data[1][row/cinfo.max_v_samp_factor][x];
             }
-            cpu_physical_memory_write(dst, buffer, width / 2 * sizeof(uint32_t));
+            cpu_physical_memory_write(dst, buffer, cinfo.output_width / 2 * sizeof(uint32_t));
             dst += dst_stride;
         }
     }
 
     g_free(buffer);
     for (comp = 0; comp < cinfo.num_components; comp++) {
-        for (row = 0; row < num_rows; row++) {
+        for (row = 0; row < dctsize * cinfo.comp_info[comp].v_samp_factor; row++) {
             g_free(data[comp][row]);
         }
         g_free(data[comp]);
@@ -150,17 +159,18 @@ static void jpeg_decompress422(void *src, unsigned long src_size, hwaddr dst, in
 static void jpeg_decompress(JpegState *s, JpegChannel *src, JpegChannel *dst)
 {
     unsigned int i, j;
+    bool is420 = s->reg_ctrl & (1 << 18);
     uint8_t scale = 1 << (((s->reg_scale_ctrl >> 16) & 0xf) >> 1);
     uint16_t width = ((s->reg_jpeg_width & 0x1ff) << 4) * scale;
-    uint16_t height = ((s->reg_jpeg_size & 0xffffff) << 5) / width;
+    uint16_t height = (((s->reg_jpeg_size & 0xffffff) / (is420 ? 6 : 4)) << (is420 ? 8 : 7)) / width;
     uint8_t offset = s->reg_jpeg_offset & 0x7f;
     size_t buffer_size = sizeof(JpegHeader) + src->num_cpy - offset;
 
     void *buffer = g_malloc(buffer_size);
     JpegHeader *header = buffer;
 
-    if (s->reg_ctrl & ((1 << 18) | (1 << 16))) {
-        hw_error("%s: only 4:2:2 jpegs are supported\n", __func__);
+    if (s->reg_ctrl & (1 << 16)) {
+        hw_error("%s: mpeg not supported\n", __func__);
     }
     if (s->reg_size_ctrl & 1) {
         hw_error("%s: zoom not supported\n", __func__);
@@ -182,7 +192,7 @@ static void jpeg_decompress(JpegState *s, JpegChannel *src, JpegChannel *dst)
             .width = cpu_to_be16(width),
             .num_components = 3,
             .components = {
-                {1, 0x21, 0},
+                {1, is420 ? 0x22 : 0x21, 0},
                 {2, 0x11, 1},
                 {3, 0x11, 1},
             },
