@@ -28,7 +28,6 @@ static void mb89083_cmd(Mb89083State *s)
     memset(s->buf, 0, sizeof(s->buf));
     s->buf[6] = s->time_valid ? 0x10 : 0;
     stl_le_p(&s->buf[7], s->time + get_clock_realtime() / NANOSECONDS_PER_SECOND);
-    s->buf[14] = parity(s->buf + 1, 13, 1); // hack to also support SC901572VOR
     s->buf[126] = parity(s->buf, 126, 2) ^ 0x0f;
     s->buf[127] = parity(s->buf + 1, 126, 2) ^ 0x0f;
 }
@@ -44,17 +43,6 @@ static uint32_t mb89083_transfer(SSISlave *dev, uint32_t value)
         s->buf_pos = 0;
     }
     return ret;
-}
-
-static int mb89083_set_cs(SSISlave *dev, bool cs)
-{
-    Mb89083State *s = BIONZ_MB89083(dev);
-    if (cs) {
-        // hack to also support SC901572VOR
-        mb89083_cmd(s);
-        s->buf_pos = 0;
-    }
-    return 0;
 }
 
 static void mb89083_realize(SSISlave *dev, Error **errp)
@@ -74,7 +62,6 @@ static void mb89083_class_init(ObjectClass *klass, void *data)
 
     k->realize = mb89083_realize;
     k->transfer = mb89083_transfer;
-    k->set_cs = mb89083_set_cs;
     k->cs_polarity = SSI_CS_LOW;
 }
 
