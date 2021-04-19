@@ -3,6 +3,7 @@
 #include "qemu/osdep.h"
 #include "hw/ssi/ssi.h"
 #include "checksum.h"
+#include "qemu/timer.h"
 
 #define TYPE_BIONZ_MB89083 "bionz_mb89083"
 #define BIONZ_MB89083(obj) OBJECT_CHECK(Mb89083State, (obj), TYPE_BIONZ_MB89083)
@@ -11,11 +12,22 @@ typedef struct Mb89083State {
     SSISlave parent_obj;
     uint8_t buf[128];
     uint8_t buf_pos;
+
+    int64_t time;
+    bool time_valid;
 } Mb89083State;
 
 static void mb89083_cmd(Mb89083State *s)
 {
+    if (s->buf[0] == 1 && s->buf[6] == 4) {
+        s->time = ldl_le_p(&s->buf[7]);
+        s->time_valid = s->time != 0;
+        s->time -= get_clock_realtime() / NANOSECONDS_PER_SECOND;
+    }
+
     memset(s->buf, 0, sizeof(s->buf));
+    s->buf[6] = s->time_valid ? 0x10 : 0;
+    stl_le_p(&s->buf[7], s->time + get_clock_realtime() / NANOSECONDS_PER_SECOND);
     s->buf[14] = parity(s->buf + 1, 13, 1); // hack to also support SC901572VOR
     s->buf[126] = parity(s->buf, 126, 2) ^ 0x0f;
     s->buf[127] = parity(s->buf + 1, 126, 2) ^ 0x0f;
@@ -49,8 +61,11 @@ static void mb89083_realize(SSISlave *dev, Error **errp)
 {
     Mb89083State *s = BIONZ_MB89083(dev);
 
+    memset(s->buf, 0, sizeof(s->buf));
     mb89083_cmd(s);
     s->buf_pos = 0;
+    s->time = 0;
+    s->time_valid = 0;
 }
 
 static void mb89083_class_init(ObjectClass *klass, void *data)
