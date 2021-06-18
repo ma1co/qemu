@@ -1,0 +1,15 @@
+name: Build
+on: push
+jobs:
+  QEMU:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install dependencies
+      run: sudo apt-get install libjpeg-dev libmad0-dev
+    - name: Configure
+      run: ./configure --target-list=arm-softmmu --disable-docs --disable-tools --disable-user
+    - name: Make
+      run: make -j $(nproc)
+    - name: Test
+      run: arm-softmmu/qemu-system-arm -machine help
