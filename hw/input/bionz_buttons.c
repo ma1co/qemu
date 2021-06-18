@@ -2,6 +2,7 @@
 
 #include "qemu/osdep.h"
 #include "hw/adc/analog.h"
+#include "hw/irq.h"
 #include "hw/qdev-properties.h"
 #include "sysemu/sysemu.h"
 #include "ui/console.h"
@@ -9,12 +10,13 @@
 #include "ui/keymaps.h"
 
 #define NUM_CHANNELS 2
+#define NUM_GPIOS 8
 
 #define MAX_VALUE 255
 #define R1 10000
 #define R2 2200
 
-#define DELAY_MS 100
+#define DELAY_MS 200
 
 #define TYPE_BIONZ_BUTTONS "bionz_buttons"
 #define BIONZ_BUTTONS(obj) OBJECT_CHECK(ButtonsState, (obj), TYPE_BIONZ_BUTTONS)
@@ -34,9 +36,10 @@ typedef struct ButtonsState {
     DeviceState parent_obj;
     QSIMPLEQ_HEAD(, KeyEvent) event_queue;
     QEMUTimer *timer;
+    qemu_irq gpios[NUM_GPIOS];
 
     uint8_t channels[NUM_CHANNELS];
-    char *keys[NUM_CHANNELS];
+    char *keys[NUM_CHANNELS + 1];
 
     KeyState keymap[Q_KEY_CODE__MAX];
     KeyState state;
@@ -47,6 +50,7 @@ static const int keymap[256][2] = {
     ['h'] = {Q_KEY_CODE_H},                      // home
     ['l'] = {Q_KEY_CODE_LEFT, Q_KEY_CODE_KP_4},  // left
     ['m'] = {Q_KEY_CODE_M},                      // menu
+    ['p'] = {Q_KEY_CODE_P},                      // play
     ['r'] = {Q_KEY_CODE_RIGHT, Q_KEY_CODE_KP_6}, // right
     ['s'] = {Q_KEY_CODE_RET},                    // set
     ['t'] = {Q_KEY_CODE_T},                      // tele
@@ -66,6 +70,10 @@ static void buttons_update(ButtonsState *s)
             value = MAX_VALUE * (R2 * s->state.button) / (R1 + R2 * s->state.button);
         }
         analog_bus_set(bus, s->channels[i], value, MAX_VALUE);
+    }
+
+    for (i = 0; i < NUM_GPIOS; i++) {
+        qemu_set_irq(s->gpios[i], s->state.active && s->state.channel == NUM_CHANNELS && s->state.button == i);
     }
 }
 
@@ -126,8 +134,10 @@ static void buttons_realize(DeviceState *dev, Error **errp)
 
     qemu_add_kbd_event_handler(buttons_kbd_event, s);
 
+    qdev_init_gpio_out(dev, s->gpios, NUM_GPIOS);
+
     memset(s->keymap, 0, sizeof(s->keymap));
-    for (i = 0; i < NUM_CHANNELS; i++) {
+    for (i = 0; i <= NUM_CHANNELS; i++) {
         for (j = 0; s->keys[i] && s->keys[i][j]; j++) {
             for (k = 0; k < ARRAY_SIZE(keymap[0]); k++) {
                 code = keymap[(int)s->keys[i][j]][k];
@@ -144,6 +154,7 @@ static Property buttons_properties[] = {
     DEFINE_PROP_UINT8("channel1", ButtonsState, channels[1], 3),
     DEFINE_PROP_STRING("keys0", ButtonsState, keys[0]),
     DEFINE_PROP_STRING("keys1", ButtonsState, keys[1]),
+    DEFINE_PROP_STRING("keys",  ButtonsState, keys[2]),
     DEFINE_PROP_END_OF_LIST(),
 };
 
