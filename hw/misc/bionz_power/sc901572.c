@@ -17,7 +17,14 @@ typedef struct Sc901572State {
 
     int64_t time;
     bool time_valid;
+    bool play_button;
 } Sc901572State;
+
+static void sc901572_play_handler(void *opaque, int irq, int level)
+{
+    Sc901572State *s = BIONZ_SC901572(opaque);
+    s->play_button = level;
+}
 
 static void sc901572_start_transfer(Sc901572State *s, uint8_t type)
 {
@@ -44,7 +51,7 @@ static void sc901572_end_transfer(Sc901572State *s)
     }
 
     memset(s->outbuf, 0, sizeof(s->outbuf));
-    s->outbuf[1] = s->time_valid ? 0x10 : 0;
+    s->outbuf[1] = (s->play_button ? 0x40 : 0) | (s->time_valid ? 0x10 : 0);
 }
 
 static uint32_t sc901572_transfer(SSISlave *dev, uint32_t value)
@@ -76,11 +83,14 @@ static void sc901572_realize(SSISlave *dev, Error **errp)
 {
     Sc901572State *s = BIONZ_SC901572(dev);
 
+    qdev_init_gpio_in_named(DEVICE(dev), sc901572_play_handler, "play", 1);
+
     memset(s->inbuf, 0, sizeof(s->inbuf));
     sc901572_end_transfer(s);
     s->buf_pos = 0;
     s->time = 0;
     s->time_valid = 0;
+    s->play_button = 0;
 }
 
 static void sc901572_class_init(ObjectClass *klass, void *data)
