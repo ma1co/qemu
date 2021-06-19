@@ -15,7 +15,14 @@ typedef struct Mb89083State {
 
     int64_t time;
     bool time_valid;
+    bool play_button;
 } Mb89083State;
+
+static void mb89083_play_handler(void *opaque, int irq, int level)
+{
+    Mb89083State *s = BIONZ_MB89083(opaque);
+    s->play_button = level;
+}
 
 static void mb89083_cmd(Mb89083State *s)
 {
@@ -26,6 +33,7 @@ static void mb89083_cmd(Mb89083State *s)
     }
 
     memset(s->buf, 0, sizeof(s->buf));
+    s->buf[1] = 0x20 | (s->play_button ? 0x40 : 0);
     s->buf[6] = s->time_valid ? 0x10 : 0;
     stl_le_p(&s->buf[7], s->time + get_clock_realtime() / NANOSECONDS_PER_SECOND);
     s->buf[126] = parity(s->buf, 126, 2) ^ 0x0f;
@@ -49,11 +57,14 @@ static void mb89083_realize(SSISlave *dev, Error **errp)
 {
     Mb89083State *s = BIONZ_MB89083(dev);
 
+    qdev_init_gpio_in_named(DEVICE(dev), mb89083_play_handler, "play", 1);
+
     memset(s->buf, 0, sizeof(s->buf));
     mb89083_cmd(s);
     s->buf_pos = 0;
     s->time = 0;
     s->time_valid = 0;
+    s->play_button = 0;
 }
 
 static void mb89083_class_init(ObjectClass *klass, void *data)
