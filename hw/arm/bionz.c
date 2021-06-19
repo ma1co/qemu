@@ -43,6 +43,7 @@
 #define CXD4108_ADC_BASE(i) (0x76b00000 + (i + 1) * 0x100000)
 #define CXD4108_NUM_ADC 2
 #define CXD4108_CLKBLK_BASE 0x77400000
+#define CXD4108_CAM_SYNC_BASE 0x78100000
 #define CXD4108_SDC_BASE 0x78200000
 #define CXD4108_JPEG_BASE 0x78c00000
 #define CXD4108_RC_BASE 0x79300000
@@ -545,6 +546,10 @@ static void cxd4108_init(MachineState *machine)
     qdev_prop_set_uint64(dev, "cpuid", 1);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_CLKBLK_BASE + 0x60);
+
+    dev = qdev_new("bionz_cam_sync");
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_CAM_SYNC_BASE);
 
     dev = qdev_new("bionz_jpeg");
     qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
