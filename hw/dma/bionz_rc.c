@@ -7,16 +7,18 @@
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 
-#define NUM_CHANNELS 3
+#define NUM_CHANNELS 4
 
 #define TYPE_BIONZ_RC "bionz_rc"
 #define BIONZ_RC(obj) OBJECT_CHECK(RcState, (obj), TYPE_BIONZ_RC)
 
 typedef struct RcChannel {
     uint32_t ctrl;
+    uint32_t data;
     uint32_t addr;
     uint32_t num_cpy;
     int32_t num_skip;
+    uint32_t num_repeat;
 } RcChannel;
 
 typedef struct RcState {
@@ -31,10 +33,31 @@ typedef struct RcState {
     uint32_t reg_inten;
 
     uint32_t reg_scale[2];
-    int32_t reg_offset[2];
+    uint32_t reg_offset[2];
     uint32_t reg_src_dim;
     uint32_t reg_dst_dim;
 } RcState;
+
+static void rc_fill(RcState *s, RcChannel *ch)
+{
+    unsigned int i;
+    uint32_t *buffer;
+
+    unsigned int count = ch->num_cpy / sizeof(uint32_t);
+    hwaddr dst = s->mem_base + ch->addr;
+
+    buffer = g_new(uint32_t, count);
+    for (i = 0; i < count; i++) {
+        buffer[i] = ch->data;
+    }
+
+    for (i = 0; i <= ch->num_repeat; i++) {
+        cpu_physical_memory_write(dst, buffer, count * sizeof(uint32_t));
+        dst += ch->num_cpy + ch->num_skip;
+    }
+
+    g_free(buffer);
+}
 
 static void rc_resize(RcState *s, RcChannel *src, RcChannel *dst)
 {
@@ -45,8 +68,8 @@ static void rc_resize(RcState *s, RcChannel *src, RcChannel *dst)
     uint16_t dst_height = s->reg_dst_dim & 0x1fff;
     uint16_t src_width = (s->reg_src_dim >> 16) & 0x1fff;
     uint16_t src_height = s->reg_src_dim & 0x1fff;
-    int32_t src_offset_x = (s->reg_offset[0] + 0x800) >> 12;
-    int32_t src_offset_y = (s->reg_offset[1] + 0x800) >> 12;
+    int32_t src_offset_x = (sextract32(s->reg_offset[0], 0, 26) + 0x800) >> 12;
+    int32_t src_offset_y = (sextract32(s->reg_offset[1], 0, 26) + 0x800) >> 12;
 
     if (src_offset_y + (((dst_height - 1) * s->reg_scale[1]) >> 12) >= src_height) {
         hw_error("%s: Invalid height\n", __func__);
@@ -88,8 +111,16 @@ static void rc_command(RcState *s)
         }
     }
 
-    if (ch_en == 3) {
+    if (ch_en == 0b0010 && s->channels[1].ctrl == 0x21) {
+        rc_fill(s, &s->channels[1]);
+    } else if (ch_en == 0b1000 && s->channels[3].ctrl == 0x21) {
+        rc_fill(s, &s->channels[3]);
+    } else if (ch_en == 0b0011) {
         rc_resize(s, &s->channels[0], &s->channels[1]);
+    } else if (ch_en == 0b1001) {
+        rc_resize(s, &s->channels[0], &s->channels[3]);
+    } else if (ch_en == 0b1100) {
+        rc_resize(s, &s->channels[2], &s->channels[3]);
     } else {
         hw_error("%s: Unsupported command\n", __func__);
     }
@@ -111,6 +142,9 @@ static uint64_t rc_ch_read(RcState *s, unsigned int ch, hwaddr offset, unsigned 
         case 0x00:
             return channel->ctrl;
 
+        case 0x0c:
+            return channel->data;
+
         case 0x20:
             return channel->addr;
 
@@ -119,6 +153,9 @@ static uint64_t rc_ch_read(RcState *s, unsigned int ch, hwaddr offset, unsigned 
 
         case 0x28:
             return channel->num_skip;
+
+        case 0x2c:
+            return channel->num_repeat;
 
         default:
             qemu_log_mask(LOG_UNIMP, "%s: unimplemented channel read @ 0x%" HWADDR_PRIx "\n", __func__, offset);
@@ -133,9 +170,13 @@ static void rc_ch_write(RcState *s, unsigned int ch, hwaddr offset, uint64_t val
     switch (offset) {
         case 0x00:
             channel->ctrl = value;
-            if (ch == 0 && (value & 1)) {
+            if (((ch == 0 || ch == 2) || ((ch == 1 || ch == 3) && (value & 0x20))) && (value & 1)) {
                 rc_command(s);
             }
+            break;
+
+        case 0x0c:
+            channel->data = value;
             break;
 
         case 0x20:
@@ -148,6 +189,10 @@ static void rc_ch_write(RcState *s, unsigned int ch, hwaddr offset, uint64_t val
 
         case 0x28:
             channel->num_skip = value;
+            break;
+
+        case 0x2c:
+            channel->num_repeat = value;
             break;
 
         default:
@@ -296,9 +341,11 @@ static void rc_reset(DeviceState *dev)
 
     for (i = 0; i < NUM_CHANNELS; i++) {
         s->channels[i].ctrl = 0;
+        s->channels[i].data = 0;
         s->channels[i].addr = 0;
         s->channels[i].num_cpy = 0;
         s->channels[i].num_skip = 0;
+        s->channels[i].num_repeat = 0;
     }
 }
 

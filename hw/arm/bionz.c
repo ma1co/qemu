@@ -46,7 +46,8 @@
 #define CXD4108_CAM_SYNC_BASE 0x78100000
 #define CXD4108_SDC_BASE 0x78200000
 #define CXD4108_JPEG_BASE 0x78c00000
-#define CXD4108_RC_BASE 0x79300000
+#define CXD4108_RC_BASE(i) (0x79200000 + (i) * 0x100000)
+#define CXD4108_NUM_RC 2
 #define CXD4108_CPYFB_BASE 0x79700000
 #define CXD4108_VIP_BASE 0x79800000
 #define CXD4108_AUDIO_BASE 0x79900000
@@ -558,12 +559,14 @@ static void cxd4108_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_JPEG_BASE + 0x800);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_IMGMC][5]);
 
-    dev = qdev_new("bionz_rc");
-    qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_RC_BASE + 0x1000);
-    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_RC_BASE + 0x2000);
-    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_IMGMC][4]);
+    for (i = 0; i < CXD4108_NUM_RC; i++) {
+        dev = qdev_new("bionz_rc");
+        qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, CXD4108_RC_BASE(i) + 0x1000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, CXD4108_RC_BASE(i) + 0x2000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, irq[CXD4108_IRQ_CH_IMGMC][3 + i]);
+    }
 
     dev = qdev_new("bionz_cpyfb");
     qdev_prop_set_uint32(dev, "base", CXD4108_DDR_BASE);
